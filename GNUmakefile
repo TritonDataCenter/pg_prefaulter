@@ -29,9 +29,13 @@ PGVERSION?=96
 POSTGRES?=$(wildcard /usr/local/bin/postgres /opt/local/lib/postgresql$(PGVERSION)/bin/postgres)
 PSQL?=$(wildcard /usr/local/bin/psql /opt/local/lib/postgresql$(PGVERSION)/bin/psql)
 INITDB?=$(wildcard /usr/local/bin/initdb /opt/local/lib/postgresql$(PGVERSION)/bin/initdb)
+PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgresql$(PGVERSION)/bin/pg_controldata)
 PWFILE?=.pwfile
 
 PGDATA?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata
+
+controldata::
+	$(PG_CONTROLDATA) -D "$(PGDATA)"
 
 initdb::
 	-cat /dev/urandom | strings | grep -o '[[:alnum:]]' | head -n 32 | tr -d '\n' > "$(PWFILE)"
@@ -59,4 +63,4 @@ test::
 psql::
 	env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PSQL) -E postgres postgres
 
-.PHONY: build initdb startdb cleandb freshdb test psql vet fmt vendor-status
+.PHONY: build controldata initdb startdb cleandb freshdb test psql vet fmt vendor-status
