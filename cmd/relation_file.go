@@ -23,7 +23,7 @@ type _RelationFile struct {
 	Block      string
 
 	// memoized values
-	lock     sync.Mutex
+	lock     *sync.Mutex
 	filename string
 	pageNum  int64
 }

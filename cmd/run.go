@@ -441,7 +441,7 @@ func initCaches() {
 				// either abort their operation when RLock() is acquired and isOpen is
 				// false, or it will have to reacquire Lock and re-Open() File.
 				val := &_FDCacheValue{
-					_RelationFile: rf,
+					_RelationFile: *rf,
 					File:          *f,
 					isOpen:        true,
 				}
