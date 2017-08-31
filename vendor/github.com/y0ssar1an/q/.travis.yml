@@ -1,0 +1,25 @@
+language: go
+
+go:
+  - 1.7
+  - 1.8
+
+notifications:
+  email: false
+
+before_install:
+  - go get -u github.com/golang/lint/golint
+  - go get -u honnef.co/go/tools/cmd/gosimple
+  - go get -u honnef.co/go/tools/cmd/staticcheck
+  - go get -u honnef.co/go/tools/cmd/unused
+
+script:
+  # $pkgs avoids testing anything in vendor/
+  - pkgs=$(go list ./... | grep -v /vendor/)
+  - test -z $(gofmt -s -l .)
+  - go test -v -race $pkgs
+  - go vet $pkgs
+  - staticcheck $pkgs
+  - gosimple $pkgs
+  - unused $pkgs
+  - golint $pkgs

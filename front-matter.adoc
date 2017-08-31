@@ -1,0 +1,32 @@
+:author: Sean Chittenden
+:email: seanc@joyent.com
+:state: predraft
+:sectnums:
+:bibtex-order: alphabetical
+:bibtex-style: ieee-with-url
+:bibtex-format: asciidoc
+:revremark: State: {state}
+:attribute-missing: warn
+:docinfo:
+:doctype: article
+:hide-uri-scheme:
+:icons: font
+:idprefix:
+:idseparator: -
+:imagesdir: images
+:numbered:
+:sectanchors:
+:sectlinks:
+:sectnums:
+:sectnumlevels: 1
+:showtitle:
+:source-highlighter: pygments
+:toc: left
+:xrefstyle: full
+ifdef::env-github[]
+:tip-caption: :bulb:
+:note-caption: :information_source:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]

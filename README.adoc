@@ -1,0 +1,20 @@
+= `pg_prefaulter`
+include::front-matter.adoc[]
+:keywords: postgresql, go, wal, fault, prefault, replication
+
+[[usage]]
+== Usage
+
+TBD.
+
+[[gen-data]]
+== Generate Test Data
+
+[source,sql]
+----
+CREATE TABLE garbage AS SELECT s, md5(random()::text) FROM generate_series(1,100000) s;
+----
+
+////
+time find /manatee/pg/data/pg_xlog/ | sort | head -n 100 | xargs -n1 basename | xargs -n 1 ./pg_prefaulter.illumos run --log-level=INFO --pgdata /manatee/pg/data/ --xlogdump-bin=./xlogdump --xlog-mode=xlog --wal
+////
