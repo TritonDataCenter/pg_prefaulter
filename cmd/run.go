@@ -269,7 +269,7 @@ func handleSignals(wg *sync.WaitGroup, progShutdownCh chan struct{}) error {
 
 // _FDCacheValue is a wrapper value type that includes an RWMutex.
 type _FDCacheValue struct {
-	sync.RWMutex
+	*sync.RWMutex
 	_RelationFile
 	os.File
 	isOpen bool
@@ -441,7 +441,7 @@ func initCaches() {
 				// either abort their operation when RLock() is acquired and isOpen is
 				// false, or it will have to reacquire Lock and re-Open() File.
 				val := &_FDCacheValue{
-					_RelationFile: *rf,
+					_RelationFile: rf,
 					File:          *f,
 					isOpen:        true,
 				}
