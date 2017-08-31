@@ -38,14 +38,21 @@ import (
 )
 
 const (
-	// pageSize == PostgreSQL's Page Size.  Page Size == BLKSZ
-	pageSize = 8 * units.KiB
+	// walBlockSize == PostgreSQL's Page Size.  Page Size == BLKSZ
+	//
+	// TODO(seanc@): pull this data from `SHOW wal_block_size`.
+	walBlockSize = 8 * units.KiB
 
-	// walFileSize == PostgreSQL WAL File Size
-	walFileSize = 16 * units.MiB
+	// walSegmentSize == PostgreSQL WAL File Size.
+	//
+	// TODO(seanc@): pull this value from `SHOW wal_segment_size`
+	walSegmentSize = 16 * units.MiB
 
-	// maxRelationFileSize is the max size of a single file in a relation.
-	maxRelationFileSize = 1 * units.GiB
+	// maxSegmentSize is the max size of a single file in a relation.
+	//
+	// TODO(seanc@): pull this value from pg_controldata(1)'s "Blocks per segment
+	// of large relation" and multiply it by walBlockSize
+	maxSegmentSize = 1 * units.GiB
 
 	// stacktrace buffer size
 	stacktraceBufSize = 1 * units.MiB
@@ -55,7 +62,7 @@ const (
 var (
 	fdCacheSize     uint
 	fdCacheTTL           = 60 * time.Second
-	ioReqCacheSize  uint = uint(walFileSize / pageSize)
+	ioReqCacheSize  uint = uint(walSegmentSize / walBlockSize)
 	ioReqCacheTTL        = 60 * time.Second
 	maxNumOpenFiles uint
 	numReservedFDs  uint = 10
@@ -152,7 +159,7 @@ var runCmd = &cobra.Command{
 
 		// Scale the ioReqCacheSize to match the number of WAL files we're going to
 		// snarf
-		ioReqCacheSize = walReadAhead * uint((walFileSize / pageSize))
+		ioReqCacheSize = walReadAhead * uint((walSegmentSize / walBlockSize))
 
 		initCaches()
 
@@ -502,13 +509,13 @@ func initCaches() {
 					defer f.Unlock()
 				}
 
-				var buf [pageSize]byte
+				var buf [walBlockSize]byte
 				pageNum, err := rf.PageNum()
 				if err != nil {
 					log.Warn().Err(err).Msgf("unable to find the page number: %+v", rf)
 					return struct{}{}, nil, errors.Wrapf(err, "unable to find the page number: %+v", rf)
 				}
-				n, err := f.ReadAt(buf[:], pageNum*int64(pageSize))
+				n, err := f.ReadAt(buf[:], pageNum*int64(walBlockSize))
 				atomic.AddUint64(&walReadOps, 1)
 				atomic.AddUint64(&walBytesRead, uint64(n))
 				if err != nil {

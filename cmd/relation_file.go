@@ -80,8 +80,8 @@ func (rf *_RelationFile) populateSelf() error {
 		return errors.Wrapf(err, "unable to parse block number")
 	}
 
-	rf.pageNum = int64(blockNumber) % int64(maxRelationFileSize/pageSize)
-	fileNum := int64(blockNumber) / int64(maxRelationFileSize/pageSize)
+	rf.pageNum = int64(blockNumber) % int64(maxSegmentSize/walBlockSize)
+	fileNum := int64(blockNumber) / int64(maxSegmentSize/walBlockSize)
 	filename := rf.Relation
 	if fileNum > 0 {
 		// It's easier to abuse Relation here than to support a parallel refilno
