@@ -44,8 +44,9 @@ initdb::
 	-cat /dev/urandom | strings | grep -o '[[:alnum:]]' | head -n 32 | tr -d '\n' > "$(PWFILE)"
 	$(INITDB) --no-locale -U postgres -A md5 --pwfile="$(PWFILE)" -D "$(PGDATA)"
 	mkdir -p $(PGDATA) $(PGFOLLOWDATA) || true
-	cp contrib/* $(PGDATA)/.
-	printf "archive_command = 'cp %%p %s/archive/%%f'\n" "$(PGFOLLOWDATA)" >> $(PGDATA)/postgresql.conf
+	echo "local   replication     postgres                                md5" >> $(PGDATA)/pg_hba.conf
+	echo "host    replication     postgres        127.0.0.1/32            md5" >> $(PGDATA)/pg_hba.conf
+	echo "host    replication     postgres        ::1/128                 md5" >> $(PGDATA)/pg_hba.conf
 
 initrepl::
 	pg_basebackup -R -h localhost -D $(PGFOLLOWDATA) -P -U postgres --xlog-method=stream
@@ -59,6 +60,12 @@ startdb::
 		-c log_disconnections=on \
 		-c log_duration=on \
 		-c log_statement=all \
+		-c wal_level=hot_standby \
+		-c archive_mode=on \
+		-c max_wal_senders=5 \
+		-c wal_keep_segments=50 \
+		-c hot_standby=on \
+		-c archive_command="cp %p $(PGFOLLOWDATA)/archive/%f" \
 	| tee postgresql.log
 
 startrepl::
@@ -70,6 +77,12 @@ startrepl::
 		-c log_disconnections=on \
 		-c log_duration=on \
 		-c log_statement=all \
+		-c wal_level=hot_standby \
+		-c archive_mode=on \
+		-c max_wal_senders=5 \
+		-c wal_keep_segments=50 \
+		-c hot_standby=on \
+		-c archive_command="cp %p $(PGFOLLOWDATA)/archive/%f" \
 	| tee postgresql.log
 
 cleandb::
