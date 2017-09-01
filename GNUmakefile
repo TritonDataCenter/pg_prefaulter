@@ -34,12 +34,23 @@ PWFILE?=.pwfile
 
 PGDATA?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata
 
+PGFOLLOWDATA?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgfollowdata
+PGFOLLOWPORT=5433
+
 controldata::
 	$(PG_CONTROLDATA) -D "$(PGDATA)"
 
 initdb::
 	-cat /dev/urandom | strings | grep -o '[[:alnum:]]' | head -n 32 | tr -d '\n' > "$(PWFILE)"
 	$(INITDB) --no-locale -U postgres -A md5 --pwfile="$(PWFILE)" -D "$(PGDATA)"
+	mkdir -p $(PGDATA) $(PGFOLLOWDATA) || true
+	echo "local   replication     postgres                                md5" >> $(PGDATA)/pg_hba.conf
+	echo "host    replication     postgres        127.0.0.1/32            md5" >> $(PGDATA)/pg_hba.conf
+	echo "host    replication     postgres        ::1/128                 md5" >> $(PGDATA)/pg_hba.conf
+
+initrepl::
+	pg_basebackup -R -h localhost -D $(PGFOLLOWDATA) -P -U postgres --xlog-method=stream
+	mkdir -p $(PGFOLLOWDATA)/archive || true
 
 startdb::
 	2>&1 \
@@ -49,13 +60,41 @@ startdb::
 		-c log_disconnections=on \
 		-c log_duration=on \
 		-c log_statement=all \
+		-c wal_level=hot_standby \
+		-c archive_mode=on \
+		-c max_wal_senders=5 \
+		-c wal_keep_segments=50 \
+		-c hot_standby=on \
+		-c archive_command="cp %p $(PGFOLLOWDATA)/archive/%f" \
+	| tee postgresql.log
+
+startrepl::
+	2>&1 \
+	$(POSTGRES) \
+		-D "$(PGFOLLOWDATA)" \
+		-p "$(PGFOLLOWPORT)" \
+		-c log_connections=on \
+		-c log_disconnections=on \
+		-c log_duration=on \
+		-c log_statement=all \
+		-c wal_level=hot_standby \
+		-c archive_mode=on \
+		-c max_wal_senders=5 \
+		-c wal_keep_segments=50 \
+		-c hot_standby=on \
+		-c archive_command="cp %p $(PGFOLLOWDATA)/archive/%f" \
 	| tee postgresql.log
 
 cleandb::
 	rm -rf "$(PGDATA)"
 	rm -f "$(PWFILE)"
 
+cleanrepl::
+	rm -rf "$(PGFOLLOWDATA)"
+
 freshdb:: cleandb initdb startdb
+
+freshrepl:: cleanrepl initrepl startrepl
 
 test::
 	2>&1 PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" make -C ../ testacc TEST=./postgresql | tee test.log
@@ -63,4 +102,7 @@ test::
 psql::
 	env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PSQL) -E postgres postgres
 
-.PHONY: build controldata initdb startdb cleandb freshdb test psql vet fmt vendor-status
+psqlrepl::
+	env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PSQL) -p 5433 -E postgres postgres
+
+.PHONY: build controldata initdb startdb cleandb freshdb test psql vet fmt vendor-status initrepl startrepl cleanrepl freshrepl psqlrepl
