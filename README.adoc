@@ -7,6 +7,8 @@ include::front-matter.adoc[]
 
 TBD.
 
+NOTE: `pg_prefaulter` exposes itself as a https://github.com/google/gops[`gops`
+agent].
 
 [[development]]
 == Development
@@ -53,6 +55,12 @@ cleandb-shard    Clean entire shard
 
 help             This help message
 ----
+
+[[todo]]
+== TODO
+
+* TBD
+
 
 [[gen-data]]
 == Generate Test Data

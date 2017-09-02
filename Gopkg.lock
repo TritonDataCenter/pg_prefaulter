@@ -20,6 +20,12 @@
   version = "v1.4.2"
 
 [[projects]]
+  name = "github.com/google/gops"
+  packages = ["agent","internal","signal"]
+  revision = "fa6968806ca68b7db113256f300d82b5206a2c3c"
+  version = "v0.3.1"
+
+[[projects]]
   branch = "master"
   name = "github.com/hashicorp/hcl"
   packages = [".","hcl/ast","hcl/parser","hcl/scanner","hcl/strconv","hcl/token","json/parser","json/scanner","json/token"]
@@ -30,6 +36,12 @@
   packages = ["."]
   revision = "76626ae9c91c4f2a10f34cad8ce83ea42c93bb75"
   version = "v1.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/jackc/pgx"
+  packages = [".","chunkreader","internal/sanitize","pgio","pgproto3","pgtype"]
+  revision = "9c8ef1acddff5f99e8cab446c0fd30a413ba69ab"
 
 [[projects]]
   branch = "master"

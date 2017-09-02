@@ -17,12 +17,11 @@ import (
 	_ "expvar"
 	"fmt"
 	stdlog "log"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/google/gops/agent"
 	"github.com/joyent/pg_prefaulter/config"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog"
@@ -36,7 +35,7 @@ var (
 	cfgFile  string
 	logLevel string
 
-	pprofEndpoint string = "localhost:4242"
+	gopsAgentEndpoint string = "localhost:5431"
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -67,8 +66,19 @@ receiver needing the page.
 		}
 
 		go func() {
-			log.Debug().Str("debug/pprof endpoint", pprofEndpoint).Msg("")
-			(http.ListenAndServe("localhost:6060", nil))
+			if viper.GetBool(config.KeyDisableAgent) {
+				log.Debug().Msg("gops(1) agent disabled by request")
+				return
+			}
+
+			options := &agent.Options{
+				Addr:              gopsAgentEndpoint,
+				NoShutdownCleanup: true,
+			}
+			log.Debug().Str("agent endpoint", options.Addr).Msg("starting gops(1) agent")
+			if err := agent.Listen(options); err != nil {
+				log.Fatal().Err(err).Msg("unable to start the gops(1) agent thread")
+			}
 		}()
 
 		return nil
@@ -103,6 +113,16 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.pg_walfaulter.yaml)")
 
 	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+
+	{
+		const (
+			disableAgentLong  = "disable-agent"
+			disableAgentShort = "A"
+		)
+
+		RootCmd.Flags().BoolP(disableAgentLong, disableAgentShort, false, "Disable the gops(1) agent interface")
+		viper.BindPFlag(config.KeyDisableAgent, runCmd.Flags().Lookup(disableAgentLong))
+	}
 }
 
 // initConfig reads in config file and ENV variables if set.
