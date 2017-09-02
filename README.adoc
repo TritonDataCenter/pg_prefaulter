@@ -7,6 +7,53 @@ include::front-matter.adoc[]
 
 TBD.
 
+
+[[development]]
+== Development
+
+1. `make freshdb-primary`
+2. `make freshdb-follower`
+3. `make resetdb`
+4. `make build`
+4. `./pg_prefaulter ...` # Iterate
+
+[source,sh]
+----
+$ make
+pg_prefaulter make(1) targets:
+build            Build pg_prefaulter binary
+check            Run go test
+fmt              fmt and simplify the code
+vendor-status    Display the vendor/ status
+vet              vet the binary (excluding dependencies)
+
+cleandb-primary  Clean primary database
+freshdb-primary  Drops and recreates the primary database
+initdb-primary   initdb(1) a primary database
+psql-primary     Open a psql(1) shell to the primary
+startdb-primary  Start the primary database
+
+cleandb-follower  Clean follower database
+freshdb-follower  Drops and recreates the follower database
+initdb-follower  initdb(1) a follower database
+psql-follower    Open a psql(1) shell to the follower
+startdb-follower  Start the follower database
+
+createdb         Create the test database
+dropdb           Reset the test database
+gendata          Generate data in the primary
+resetdb          Drop and recreate the database
+testdb           Run database tests
+
+controldata      Display pg_controldata(1) of the primary
+psql             Open a psql(1) shell to the primary
+
+clean            Clean target
+cleandb-shard    Clean entire shard
+
+help             This help message
+----
+
 [[gen-data]]
 == Generate Test Data
 

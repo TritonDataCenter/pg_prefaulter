@@ -1,4 +1,4 @@
-pg_prefaulter
-pg_prefaulter.illumos
+pg_prefaulter*
 .pwfile
-.pgdata
+.pgdata_follower/
+.pgdata_primary/
