@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joyent/pg_prefaulter/config"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -119,10 +120,11 @@ func initConfig() {
 
 		// Search config in home directory with name ".cobra" (without extension).
 		viper.AddConfigPath(home)
-		viper.SetConfigName(".pg_prefault")
+		viper.SetConfigName(".pg_prefaulter")
 	}
 
-	viper.AutomaticEnv() // read in environment variables that match
+	viper.BindEnv(config.KeyPGUser, "PGUSER")
+	viper.BindEnv(config.KeyPGPassword, "PGPASSWORD")
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {

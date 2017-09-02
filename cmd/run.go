@@ -16,13 +16,12 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,9 +31,12 @@ import (
 
 	"github.com/alecthomas/units"
 	"github.com/bluele/gcache"
+	"github.com/joyent/pg_prefaulter/agent"
+	"github.com/joyent/pg_prefaulter/config"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -53,9 +55,6 @@ const (
 	// TODO(seanc@): pull this value from pg_controldata(1)'s "Blocks per segment
 	// of large relation" and multiply it by walBlockSize
 	maxSegmentSize = 1 * units.GiB
-
-	// stacktrace buffer size
-	stacktraceBufSize = 1 * units.MiB
 )
 
 // CLI arg values
@@ -120,16 +119,21 @@ var (
 // runCmd represents the run command
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Run pg_walfaulter",
-	Long:  `Run pg_walfaulter and begin faulting in PostgreSQL pages`,
+	Short: "Run pg_prefaulter",
+	Long:  `Run pg_prefaulter and begin faulting in PostgreSQL pages`,
 
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		log.Debug().Msgf("args: %v", args)
 		defer func() {
+			// FIXME(seanc@): Iterate over known viper keys and automatically log
+			// values.
 			log.Debug().
 				Str(pgdataPathLong, pgdataPath).
+				Str(config.KeyPGUser, viper.GetString(config.KeyPGUser)).
+				Str(config.KeyPGPassword, viper.GetString(config.KeyPGPassword)). // FIXME(seanc@): // Reset to <redacted>
 				Str(pgXLogdumpModeLong, pgXLogdumpMode).
 				Str(pgXLogdumpPathLong, pgXLogdumpPath).
+				Dur(config.KeyPollInterval, viper.GetDuration(config.KeyPollInterval)).
 				Str(walFilesLong, strings.Join(walFiles, ", ")).
 				Uint(walReadAheadLong, walReadAhead).
 				Uint(walThreadsLong, walThreads).
@@ -168,8 +172,8 @@ var runCmd = &cobra.Command{
 
 	RunE: func(cmd *cobra.Command, args []string) error {
 		log.Debug().Msg("Starting WAL reader")
-		progShutdownCh := make(chan struct{})
 
+		// Unconditionally emit various stats on shutdown
 		defer func() {
 			log.Info().
 				Uint("num-wal-threads", numIOThreads).
@@ -179,53 +183,52 @@ var runCmd = &cobra.Command{
 				Msg("boss thread stats")
 		}()
 
-		var wg sync.WaitGroup
-
-		// clamp the number of threads to the number of walFiles
-		if numFiles := uint(len(walFiles)); walThreads > numFiles {
-			walThreads = numFiles
+		a, err := agent.New(config.NewDefault())
+		if err != nil {
+			return errors.Wrap(err, "unable to start the pg_prefaulter agent")
 		}
+		go a.Start()
+		defer a.Stop()
 
-		// Start WAL worker threads
-		ioRequestCh := make(chan *_RelationFile)
-		// Create a gang of IO workers for this boss
-		for i := uint(0); i < numIOThreads; i++ {
-			walWorkerThreadID := i // pin i's value
-			go walFaultWorker(walWorkerThreadID, ioRequestCh)
-		}
+		return a.Wait()
 
-		// Add an item to the wait group
-		wg.Add(1)
-		walFilesCh := make(chan string, walThreads)
-		for i := uint(0); i < walThreads; i++ {
-			i := i
-			go func() {
-				wg.Add(1)
-				defer wg.Done()
-				walBossThread(i, ioRequestCh, progShutdownCh, walFilesCh)
-			}()
-		}
+		// var wg sync.WaitGroup
 
-		// single thread feeder to one boss-thread per WAL file
-		for _, walFile := range walFiles {
-			log.Debug().Str("filename", walFile).Msg("submitting file")
-			walFilesCh <- walFile
-		}
-		log.Debug().Msg("closing walfiles channel")
-		close(walFilesCh)
+		// // clamp the number of threads to the number of walFiles
+		// if numFiles := uint(len(walFiles)); walThreads > numFiles {
+		// 	walThreads = numFiles
+		// }
 
-		wg.Done()
-		close(progShutdownCh)
+		// // Start WAL worker threads
+		// ioRequestCh := make(chan *_RelationFile)
+		// // Create a gang of IO workers for this boss
+		// for i := uint(0); i < numIOThreads; i++ {
+		// 	walWorkerThreadID := i // pin i's value
+		// 	go walFaultWorker(walWorkerThreadID, ioRequestCh)
+		// }
 
-		if err := handleSignals(&wg, progShutdownCh); err != nil {
-			// FIXME(seanc@): I'm now of the exceedingly firm opinion that our logger
-			// should return an error object so that we don't have the redundancy
-			// here.
-			log.Info().Err(err).Msg("signal handling")
-			return errors.Wrap(err, "signal handling")
-		}
+		// // Add an item to the wait group
+		// walFilesCh := make(chan string, walThreads)
+		// for i := uint(0); i < walThreads; i++ {
+		// 	i := i
+		// 	go func() {
+		// 		wg.Add(1)
+		// 		defer wg.Done()
+		// 		walBossThread(shutdownCtxt, i, ioRequestCh, walFilesCh)
+		// 	}()
+		// }
 
-		return nil
+		// // single thread feeder to one boss-thread per WAL file
+		// for _, walFile := range walFiles {
+		// 	log.Debug().Str("filename", walFile).Msg("submitting file")
+		// 	walFilesCh <- walFile
+		// }
+		// log.Debug().Msg("closing walfiles channel")
+		// close(walFilesCh)
+
+		// wg.Wait()
+
+		// return nil
 	},
 }
 
@@ -234,6 +237,21 @@ func init() {
 
 	runCmd.Flags().StringVarP(&pgdataPath, pgdataPathLong, pgdataPathShort,
 		pgdataPathDefault, "Path to PGDATA")
+
+	const (
+		defaultPGUsername = "postgres"
+		pgUsernameLong    = "username"
+
+		defaultPollInterval = "1s"
+		pollIntervalLong    = "poll-interval"
+	)
+
+	runCmd.Flags().StringP(pgUsernameLong, "U", defaultPGUsername, "Username to connect to PostgreSQL")
+	viper.BindPFlag(config.KeyPGUser, runCmd.Flags().Lookup(pgUsernameLong))
+
+	runCmd.Flags().StringP(pollIntervalLong, "i", defaultPollInterval, "Interval at which pg_prefaulter polls the database for state change")
+	viper.BindPFlag(config.KeyPollInterval, runCmd.Flags().Lookup(pollIntervalLong))
+
 	runCmd.Flags().StringVarP(&pgXLogdumpPath, pgXLogdumpPathLong, pgXLogdumpPathShort,
 		pgXLogdumpPathDefault, "Path to pg_xlogdump(1)")
 	runCmd.Flags().StringVarP(&pgXLogdumpMode, pgXLogdumpModeLong, pgXLogdumpModeShort,
@@ -244,34 +262,6 @@ func init() {
 		walReadAheadDefault, "Number of WAL entries to perform read-ahead into")
 	runCmd.Flags().UintVarP(&walThreads, walThreadsLong, walThreadsShort,
 		walThreadsDefault, "Number of conurrent prefetch threads per WAL file")
-}
-
-// handleSignals blocks until time to exit
-func handleSignals(wg *sync.WaitGroup, progShutdownCh chan struct{}) error {
-	signalCh := make(chan os.Signal, 1)
-	// send a SIGINFO to have a backtrace printed to stdout
-	signal.Notify(signalCh, os.Interrupt, unix.SIGTERM, unix.SIGHUP, unix.SIGPIPE, unix.SIGINFO)
-
-	// pre-allocate a buffer
-	buf := make([]byte, stacktraceBufSize)
-
-	select {
-	case sig := <-signalCh:
-		log.Info().Str("signal", sig.String()).Msg("Received signal")
-		switch sig {
-		case unix.SIGINFO:
-			stacklen := runtime.Stack(buf, true)
-			fmt.Printf("=== received SIGINFO ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
-		default:
-			close(progShutdownCh)
-		}
-	case <-progShutdownCh:
-		log.Debug().Msg("Shutting down")
-	}
-
-	wg.Wait()
-	log.Debug().Msg("Shut down")
-	return nil
 }
 
 // _FDCacheValue is a wrapper value type that includes an RWMutex.
@@ -299,8 +289,8 @@ var xlogdumpRE = regexp.MustCompile(`s/d/r:([\d]+)/([\d]+)/([\d]+) (?:tid |blk/o
 // the boss thread to popen(3) the xlog dumping utility and spawn worker threads
 // that will pre-fault in de-duped page requests into the OS'es filesystem cache
 // (global variable ioReqCache).
-func walBossThread(threadID uint, ioRequestCh chan *_RelationFile,
-	progShutdownCh chan struct{}, in <-chan string) {
+func walBossThread(ctx context.Context, threadID uint,
+	ioRequestCh chan *_RelationFile, in <-chan string) {
 	log.Debug().Uint("boss-thread-id", threadID).Msg("starting thread")
 	var linesScanned, matchedLines, dispatchCount, walFilesProcessed uint64
 
@@ -309,6 +299,8 @@ func walBossThread(threadID uint, ioRequestCh chan *_RelationFile,
 	// Loop until we've processed all WAL files
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case walFile, ok := <-in:
 			if !ok {
 				close(ioRequestCh)
@@ -323,10 +315,10 @@ func walBossThread(threadID uint, ioRequestCh chan *_RelationFile,
 				continue
 			}
 
-			cmd := exec.Command(pgXLogdumpPath, fileName)
+			cmd := exec.CommandContext(ctx, pgXLogdumpPath, fileName)
 			stdoutStderr, err := cmd.CombinedOutput()
 			if err != nil || len(stdoutStderr) == 0 {
-				log.Warn().Err(err).Msg("unable to process WAL file")
+				log.Warn().Str("out", string(stdoutStderr)).Err(err).Msg("unable to process WAL file")
 				continue
 			}
 			log.Debug().Int("wal output len", len(stdoutStderr)).Msg("post-xlogdump stats")
@@ -360,10 +352,6 @@ func walBossThread(threadID uint, ioRequestCh chan *_RelationFile,
 				Uint64("lines scanned", linesScanned).
 				Uint64("matched lines", matchedLines).
 				Msg("wal boss stats")
-
-		case <-progShutdownCh:
-			close(ioRequestCh)
-			return
 		}
 	}
 }
