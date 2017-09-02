@@ -7,8 +7,10 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/joyent/pg_prefaulter/config"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
+	"github.com/spf13/viper"
 )
 
 // _RelationFile contains the forward lookup information for a given relation
@@ -89,7 +91,7 @@ func (rf *_RelationFile) populateSelf() error {
 		filename = fmt.Sprintf("%s.%d", rf.Relation, fileNum)
 	}
 
-	rf.filename = path.Join(pgdataPath, "base", string(rf.Database), string(filename))
+	rf.filename = path.Join(viper.GetString(config.KeyPGData), "base", string(rf.Database), string(filename))
 
 	return nil
 }

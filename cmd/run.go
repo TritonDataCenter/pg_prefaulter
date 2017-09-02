@@ -68,7 +68,6 @@ var (
 	numIOThreads    uint = 8
 	pgXLogdumpMode  string
 	pgXLogdumpPath  string
-	pgdataPath      string
 	walFiles        []string
 	walReadAhead    uint
 	walThreads      uint
@@ -79,10 +78,6 @@ var (
 
 // CLI arg constants
 const (
-	pgdataPathLong    = "pgdata"
-	pgdataPathShort   = "D"
-	pgdataPathDefault = "pgdata"
-
 	pgXLogdumpModeLong    = "xlog-mode"
 	pgXLogdumpModeShort   = "m"
 	pgXLogdumpModeDefault = "pg"
@@ -128,7 +123,7 @@ var runCmd = &cobra.Command{
 			// FIXME(seanc@): Iterate over known viper keys and automatically log
 			// values.
 			log.Debug().
-				Str(pgdataPathLong, pgdataPath).
+				Str(config.KeyPGData, viper.GetString(config.KeyPGData)).
 				Str(config.KeyPGUser, viper.GetString(config.KeyPGUser)).
 				Str(config.KeyPGPassword, viper.GetString(config.KeyPGPassword)). // FIXME(seanc@): // Reset to <redacted>
 				Str(pgXLogdumpModeLong, pgXLogdumpMode).
@@ -235,9 +230,6 @@ var runCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(runCmd)
 
-	runCmd.Flags().StringVarP(&pgdataPath, pgdataPathLong, pgdataPathShort,
-		pgdataPathDefault, "Path to PGDATA")
-
 	const (
 		defaultPGUsername = "postgres"
 		pgUsernameLong    = "username"
@@ -295,6 +287,7 @@ func walBossThread(ctx context.Context, threadID uint,
 	var linesScanned, matchedLines, dispatchCount, walFilesProcessed uint64
 
 	re := xlogRE.Copy()
+	pgdataPath := viper.GetString(config.KeyPGData)
 
 	// Loop until we've processed all WAL files
 	for {

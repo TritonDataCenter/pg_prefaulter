@@ -123,6 +123,18 @@ func init() {
 		RootCmd.Flags().BoolP(disableAgentLong, disableAgentShort, false, "Disable the gops(1) agent interface")
 		viper.BindPFlag(config.KeyDisableAgent, runCmd.Flags().Lookup(disableAgentLong))
 	}
+
+	{
+		const (
+			pgdataPathLong    = "pgdata"
+			pgdataPathShort   = "D"
+			pgdataPathDefault = "pgdata"
+		)
+
+		RootCmd.Flags().StringP(pgdataPathLong, pgdataPathShort, pgdataPathDefault, "Path to PGDATA")
+		viper.BindPFlag(config.KeyPGData, runCmd.Flags().Lookup(pgdataPathLong))
+		viper.BindEnv(config.KeyPGData, "PGDATA")
+	}
 }
 
 // initConfig reads in config file and ENV variables if set.
