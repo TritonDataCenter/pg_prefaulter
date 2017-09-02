@@ -231,15 +231,9 @@ func init() {
 	RootCmd.AddCommand(runCmd)
 
 	const (
-		defaultPGUsername = "postgres"
-		pgUsernameLong    = "username"
-
 		defaultPollInterval = "1s"
 		pollIntervalLong    = "poll-interval"
 	)
-
-	runCmd.Flags().StringP(pgUsernameLong, "U", defaultPGUsername, "Username to connect to PostgreSQL")
-	viper.BindPFlag(config.KeyPGUser, runCmd.Flags().Lookup(pgUsernameLong))
 
 	runCmd.Flags().StringP(pollIntervalLong, "i", defaultPollInterval, "Interval at which pg_prefaulter polls the database for state change")
 	viper.BindPFlag(config.KeyPollInterval, runCmd.Flags().Lookup(pollIntervalLong))

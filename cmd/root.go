@@ -135,6 +135,18 @@ func init() {
 		viper.BindPFlag(config.KeyPGData, runCmd.Flags().Lookup(pgdataPathLong))
 		viper.BindEnv(config.KeyPGData, "PGDATA")
 	}
+
+	{
+		const (
+			defaultPGUsername = "postgres"
+			pgUsernameLong    = "username"
+			pgUsernameShort   = "U"
+		)
+
+		RootCmd.Flags().StringP(pgUsernameLong, pgUsernameShort, defaultPGUsername, "Username to connect to PostgreSQL")
+		viper.BindPFlag(config.KeyPGUser, runCmd.Flags().Lookup(pgUsernameLong))
+		viper.BindEnv(config.KeyPGUser, "PGUSER")
+	}
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -155,7 +167,6 @@ func initConfig() {
 		viper.SetConfigName(".pg_prefaulter")
 	}
 
-	viper.BindEnv(config.KeyPGUser, "PGUSER")
 	viper.BindEnv(config.KeyPGPassword, "PGPASSWORD")
 
 	// If a config file is found, read it in.
