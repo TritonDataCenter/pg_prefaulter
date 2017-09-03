@@ -19,7 +19,7 @@ func NewDefault() Config {
 				Database: "postgres",
 				User:     viper.GetString(KeyPGUser),
 				Password: viper.GetString(KeyPGPassword),
-				Host:     "/tmp",
+				Host:     viper.GetString(KeyPGHost),
 				Port:     5432,
 
 				// TODO(seanc@): Create a logger interface that wraps rs/zerolog

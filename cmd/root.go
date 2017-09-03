@@ -147,6 +147,18 @@ func init() {
 		viper.BindPFlag(config.KeyPGUser, runCmd.Flags().Lookup(pgUsernameLong))
 		viper.BindEnv(config.KeyPGUser, "PGUSER")
 	}
+
+	{
+		const (
+			defaultPGHostname = "/tmp"
+			pgHostLong        = "hostname"
+			pgHostShort       = "H"
+		)
+
+		RootCmd.Flags().StringP(pgHostLong, pgHostShort, defaultPGHostname, "Hostname to connect to PostgreSQL")
+		viper.BindPFlag(config.KeyPGHost, runCmd.Flags().Lookup(pgHostLong))
+		viper.BindEnv(config.KeyPGHost, "PGHOST")
+	}
 }
 
 // initConfig reads in config file and ENV variables if set.
