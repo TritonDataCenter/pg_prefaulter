@@ -2,6 +2,7 @@ package config
 
 import (
 	"github.com/jackc/pgx"
+	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 )
 
@@ -16,11 +17,13 @@ func NewDefault() Config {
 			MaxConnections: 5,
 
 			ConnConfig: pgx.ConnConfig{
-				Database: "postgres",
+				Database: viper.GetString(KeyPGDatabase),
 				User:     viper.GetString(KeyPGUser),
 				Password: viper.GetString(KeyPGPassword),
 				Host:     viper.GetString(KeyPGHost),
-				Port:     5432,
+				Port:     cast.ToUint16(viper.GetInt(KeyPGPort)),
+				// TLSConfig: &tls.Config{}, // TODO(seanc@): need to generate a TLS
+				// config
 
 				// TODO(seanc@): Create a logger interface that wraps rs/zerolog
 				// Logger: logger,

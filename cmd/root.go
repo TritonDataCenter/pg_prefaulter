@@ -112,18 +112,6 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "INFO", "Log level")
 	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.pg_walfaulter.yaml)")
 
-	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-
-	{
-		const (
-			disableAgentLong  = "disable-agent"
-			disableAgentShort = "A"
-		)
-
-		RootCmd.Flags().BoolP(disableAgentLong, disableAgentShort, false, "Disable the gops(1) agent interface")
-		viper.BindPFlag(config.KeyDisableAgent, runCmd.Flags().Lookup(disableAgentLong))
-	}
-
 	{
 		const (
 			pgdataPathLong    = "pgdata"
@@ -134,6 +122,42 @@ func init() {
 		RootCmd.Flags().StringP(pgdataPathLong, pgdataPathShort, pgdataPathDefault, "Path to PGDATA")
 		viper.BindPFlag(config.KeyPGData, runCmd.Flags().Lookup(pgdataPathLong))
 		viper.BindEnv(config.KeyPGData, "PGDATA")
+	}
+
+	{
+		const (
+			defaultPGHostname = "/tmp"
+			pgHostLong        = "hostname"
+			pgHostShort       = "H"
+		)
+
+		RootCmd.Flags().StringP(pgHostLong, pgHostShort, defaultPGHostname, "Hostname to connect to PostgreSQL")
+		viper.BindPFlag(config.KeyPGHost, runCmd.Flags().Lookup(pgHostLong))
+		viper.BindEnv(config.KeyPGHost, "PGHOST")
+	}
+
+	{
+		const (
+			defaultPGPort = 5432
+			pgPortLong    = "port"
+			pgPortShort   = "p"
+		)
+
+		RootCmd.Flags().UintP(pgPortLong, pgPortShort, defaultPGPort, "Hostname to connect to PostgreSQL")
+		viper.BindPFlag(config.KeyPGPort, runCmd.Flags().Lookup(pgPortLong))
+		viper.BindEnv(config.KeyPGPort, "PGPORT")
+	}
+
+	{
+		const (
+			pgdatabaseLong    = "database"
+			pgdatabaseShort   = "d"
+			pgdatabaseDefault = "postgres"
+		)
+
+		RootCmd.Flags().StringP(pgdatabaseLong, pgdatabaseShort, pgdatabaseDefault, "Database name to connect to")
+		viper.BindPFlag(config.KeyPGDatabase, runCmd.Flags().Lookup(pgdatabaseLong))
+		viper.BindEnv(config.KeyPGDatabase, "PGDATABASE")
 	}
 
 	{
@@ -149,15 +173,17 @@ func init() {
 	}
 
 	{
+		viper.BindEnv(config.KeyPGPassword, "PGPASSWORD")
+	}
+
+	{
 		const (
-			defaultPGHostname = "/tmp"
-			pgHostLong        = "hostname"
-			pgHostShort       = "H"
+			disableAgentLong  = "disable-agent"
+			disableAgentShort = "A"
 		)
 
-		RootCmd.Flags().StringP(pgHostLong, pgHostShort, defaultPGHostname, "Hostname to connect to PostgreSQL")
-		viper.BindPFlag(config.KeyPGHost, runCmd.Flags().Lookup(pgHostLong))
-		viper.BindEnv(config.KeyPGHost, "PGHOST")
+		RootCmd.Flags().BoolP(disableAgentLong, disableAgentShort, false, "Disable the gops(1) agent interface")
+		viper.BindPFlag(config.KeyDisableAgent, runCmd.Flags().Lookup(disableAgentLong))
 	}
 }
 
@@ -178,8 +204,6 @@ func initConfig() {
 		viper.AddConfigPath(home)
 		viper.SetConfigName(".pg_prefaulter")
 	}
-
-	viper.BindEnv(config.KeyPGPassword, "PGPASSWORD")
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {

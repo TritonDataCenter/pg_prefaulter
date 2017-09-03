@@ -125,8 +125,8 @@ var runCmd = &cobra.Command{
 			log.Debug().
 				Str(config.KeyPGData, viper.GetString(config.KeyPGData)).
 				Str(config.KeyPGHost, viper.GetString(config.KeyPGHost)).
+				Str(config.KeyPGPort, viper.GetString(config.KeyPGPort)).
 				Str(config.KeyPGUser, viper.GetString(config.KeyPGUser)).
-				Str(config.KeyPGPassword, viper.GetString(config.KeyPGPassword)). // FIXME(seanc@): // Reset to <redacted>
 				Str(pgXLogdumpModeLong, pgXLogdumpMode).
 				Str(pgXLogdumpPathLong, pgXLogdumpPath).
 				Dur(config.KeyPollInterval, viper.GetDuration(config.KeyPollInterval)).
