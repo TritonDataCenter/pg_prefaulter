@@ -14,7 +14,7 @@ WALFILES=`/usr/bin/find /manatee/pg/data/pg_xlog/ -type f ! -name '*.done' | /op
 exec 2>&1
 
 for w in $WALFILES; do
-        ./pg_walfaulter.illumos run \
+        ./pg_prefaulter.illumos run \
                 --log-level=DEBUG \
                 --wal `basename "${w}"` \
                 --pgdata "${PGDATA}" \

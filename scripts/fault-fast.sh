@@ -5,7 +5,7 @@ set -e
 PGDATA=/manatee/pg/data/
 WALFILE=`ps auxwww  | grep [r]ecovering | awk '{print $16}'`
 
-exec ./pg_walfaulter.illumos run \
+exec ./pg_prefaulter.illumos run \
 	--log-level=DEBUG \
         --wal "${WALFILE}" \
         --pgdata "${PGDATA}" \

@@ -40,12 +40,22 @@ var (
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "pg_walfaulter",
-	Short: "pg_walfaulter pre-faults PostgreSQL WAL pages",
-	Long: `PostgreSQL's WAL-receiver applies WAL files in serial and relies on the
-operating system's filesystem cache.  pg_walfaulter decodes WAL pages and
-attempts to pre-fault the page into the OS'es cache in advance of the the WAL
-receiver needing the page.
+	Use:   "pg_prefaulter",
+	Short: "pg_prefaulter pre-faults PostgreSQL heap pages based on WAL files",
+	Long: `
+PostgreSQL's WAL-receiver applies WAL files in serial.  This design implicitly
+assumes that the heap page required to apply the WAL entry is within the
+operating system's filesystem cache.  If the filesystem cache does not contain
+the necessary heap page, the PostgreSQL WAL apply process will be block while
+the OS faults in the page from its storage.  For large working sets of data or
+when the filesystem cache is cold, this is problematic for streaming replicas
+because they will lag and fall behind.
+
+pg_prefaulter(1) mitigates this serially scheduled IO problem by reading WAL
+entries via pg_xlogdump(1) and performing parallel pread(2) calls in order to
+"pre-fault" the page into the OS's filesystem cache so that when the PostgreSQL
+WAL receiver goes to apply a WAL entry to its heap, the page is already loaded
+into the OS'es filesystem cache.
 `,
 
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -110,7 +120,7 @@ func init() {
 	stdlog.SetOutput(zlog)
 
 	RootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "INFO", "Log level")
-	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.pg_walfaulter.yaml)")
+	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.pg_prefaulter.yaml)")
 
 	{
 		const (
