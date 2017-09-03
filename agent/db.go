@@ -37,8 +37,8 @@ const (
 	CurrentXLogFlushLocation
 )
 
-// QueryLSN queries a specific LSN from the database.
-func (a *Agent) QueryLSN(lsnQuery LSNQuery) (lsn.LSN, error) {
+// queryLSN queries a specific LSN from the database.
+func (a *Agent) queryLSN(lsnQuery LSNQuery) (lsn.LSN, error) {
 	// sql must return one column with an LSN type as the result
 	var sql string
 	switch lsnQuery {

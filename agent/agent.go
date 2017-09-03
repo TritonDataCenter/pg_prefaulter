@@ -128,7 +128,7 @@ func (a *Agent) runFollower() (loopImmediately bool) {
 	}
 	defer tx.RollbackEx(a.shutdownCtx)
 
-	lsn, err := a.QueryLSN(LastXLogReplayLocation)
+	lsn, err := a.queryLSN(LastXLogReplayLocation)
 	if err != nil {
 		log.Error().Err(err).Msg("unable to query LSN")
 		return false
