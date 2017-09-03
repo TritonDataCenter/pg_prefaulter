@@ -206,38 +206,13 @@ func init() {
 
 	{
 		const (
-			defaultPollInterval = "1s"
 			pollIntervalLong    = "poll-interval"
+			defaultPollInterval = "1s"
 		)
 
 		runCmd.Flags().StringP(pollIntervalLong, "i", defaultPollInterval, "Interval at which pg_prefaulter polls the database for state change")
 		viper.BindPFlag(config.KeyPollInterval, runCmd.Flags().Lookup(pollIntervalLong))
 		viper.SetDefault(config.KeyPollInterval, defaultPollInterval)
-	}
-
-	{
-		const (
-			pgXLogdumpPathLong    = "xlogdump-bin"
-			pgXLogdumpPathShort   = "x"
-			pgXLogdumpPathDefault = "/usr/local/pg_xlogdump"
-		)
-
-		runCmd.Flags().StringP(pgXLogdumpPathLong, pgXLogdumpPathShort,
-			pgXLogdumpPathDefault, "Path to pg_xlogdump(1)")
-		viper.BindPFlag(config.KeyXLogPath, runCmd.Flags().Lookup(pgXLogdumpPathLong))
-		viper.SetDefault(config.KeyXLogPath, pgXLogdumpPathDefault)
-	}
-
-	{
-		const (
-			pgXLogdumpModeLong    = "xlog-mode"
-			pgXLogdumpModeShort   = "m"
-			pgXLogdumpModeDefault = "pg"
-		)
-		runCmd.Flags().StringP(pgXLogdumpModeLong, pgXLogdumpModeShort,
-			pgXLogdumpModeDefault, `pg_xlogdump(1) variant: "xlog" or "pg"`)
-		viper.BindPFlag(config.KeyXLogMode, runCmd.Flags().Lookup(pgXLogdumpModeLong))
-		viper.SetDefault(config.KeyXLogMode, pgXLogdumpModeDefault)
 	}
 
 	{
@@ -276,6 +251,31 @@ func init() {
 			walThreadsDefault, "Number of conurrent prefetch threads per WAL file")
 		viper.BindPFlag(config.KeyWALThreads, runCmd.Flags().Lookup(walThreadsLong))
 		viper.SetDefault(config.KeyWALThreads, walThreadsDefault)
+	}
+
+	{
+		const (
+			pgXLogdumpPathLong    = "xlogdump-bin"
+			pgXLogdumpPathShort   = "x"
+			pgXLogdumpPathDefault = "/usr/local/pg_xlogdump"
+		)
+
+		runCmd.Flags().StringP(pgXLogdumpPathLong, pgXLogdumpPathShort,
+			pgXLogdumpPathDefault, "Path to pg_xlogdump(1)")
+		viper.BindPFlag(config.KeyXLogPath, runCmd.Flags().Lookup(pgXLogdumpPathLong))
+		viper.SetDefault(config.KeyXLogPath, pgXLogdumpPathDefault)
+	}
+
+	{
+		const (
+			pgXLogdumpModeLong    = "xlog-mode"
+			pgXLogdumpModeShort   = "m"
+			pgXLogdumpModeDefault = "pg"
+		)
+		runCmd.Flags().StringP(pgXLogdumpModeLong, pgXLogdumpModeShort,
+			pgXLogdumpModeDefault, `pg_xlogdump(1) variant: "xlog" or "pg"`)
+		viper.BindPFlag(config.KeyXLogMode, runCmd.Flags().Lookup(pgXLogdumpModeLong))
+		viper.SetDefault(config.KeyXLogMode, pgXLogdumpModeDefault)
 	}
 }
 
