@@ -22,7 +22,6 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -66,36 +65,9 @@ var (
 	maxNumOpenFiles uint
 	numReservedFDs  uint = 10
 	numIOThreads    uint = 8
-	pgXLogdumpMode  string
-	pgXLogdumpPath  string
-	walFiles        []string
-	walReadAhead    uint
-	walThreads      uint
 
 	// derived variables from the CLI args
 	xlogRE *regexp.Regexp
-)
-
-// CLI arg constants
-const (
-	pgXLogdumpModeLong    = "xlog-mode"
-	pgXLogdumpModeShort   = "m"
-	pgXLogdumpModeDefault = "pg"
-
-	pgXLogdumpPathLong    = "xlogdump-bin"
-	pgXLogdumpPathShort   = "x"
-	pgXLogdumpPathDefault = "/usr/local/pg_xlogdump"
-
-	walFilesLong  = "wal"
-	walFilesShort = "w"
-
-	walReadAheadLong    = "wal-readahead"
-	walReadAheadShort   = "n"
-	walReadAheadDefault = 4
-
-	walThreadsLong    = "wal-threads"
-	walThreadsShort   = "t"
-	walThreadsDefault = 4
 )
 
 // Process-wide cache globals
@@ -119,26 +91,27 @@ var runCmd = &cobra.Command{
 
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		log.Debug().Msgf("args: %v", args)
+		walReadAhead := uint(viper.GetInt(config.KeyWALReadAhead))
+
 		defer func() {
 			// FIXME(seanc@): Iterate over known viper keys and automatically log
 			// values.
 			log.Debug().
 				Str(config.KeyPGData, viper.GetString(config.KeyPGData)).
 				Str(config.KeyPGHost, viper.GetString(config.KeyPGHost)).
-				Str(config.KeyPGPort, viper.GetString(config.KeyPGPort)).
+				Uint(config.KeyPGPort, uint(viper.GetInt(config.KeyPGPort))).
 				Str(config.KeyPGUser, viper.GetString(config.KeyPGUser)).
-				Str(pgXLogdumpModeLong, pgXLogdumpMode).
-				Str(pgXLogdumpPathLong, pgXLogdumpPath).
+				Str(config.KeyXLogMode, viper.GetString(config.KeyXLogMode)).
+				Str(config.KeyXLogPath, viper.GetString(config.KeyXLogPath)).
 				Dur(config.KeyPollInterval, viper.GetDuration(config.KeyPollInterval)).
-				Str(walFilesLong, strings.Join(walFiles, ", ")).
-				Uint(walReadAheadLong, walReadAhead).
-				Uint(walThreadsLong, walThreads).
+				Strs(config.KeyWALFiles, viper.GetStringSlice(config.KeyWALFiles)).
+				Uint(config.KeyWALReadAhead, walReadAhead).
+				Uint(config.KeyWALThreads, uint(viper.GetInt(config.KeyWALThreads))).
 				Uint("io-req-dedup-size", ioReqCacheSize).
-				Int("num wal files", len(walFiles)).
 				Msg("flags")
 		}()
 
-		if len(walFiles) == 0 {
+		if len(viper.GetStringSlice(config.KeyWALFiles)) == 0 {
 			return fmt.Errorf("no WAL files specified")
 		}
 
@@ -148,13 +121,13 @@ var runCmd = &cobra.Command{
 		}
 		maxNumOpenFiles = uint(procNumFiles.Cur) - walReadAhead
 
-		switch pgXLogdumpMode {
+		switch mode := viper.GetString(config.KeyXLogMode); mode {
 		case "xlog":
 			xlogRE = xlogdumpRE.Copy()
 		case "pg":
 			xlogRE = pgXLogDumpRE.Copy()
 		default:
-			return fmt.Errorf("unsupported %s: %q", pgXLogdumpModeLong, pgXLogdumpMode)
+			return fmt.Errorf("unsupported %s: %q", config.KeyXLogMode, mode)
 		}
 
 		// Scale the ioReqCacheSize to match the number of WAL files we're going to
@@ -231,24 +204,79 @@ var runCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(runCmd)
 
-	const (
-		defaultPollInterval = "1s"
-		pollIntervalLong    = "poll-interval"
-	)
+	{
+		const (
+			defaultPollInterval = "1s"
+			pollIntervalLong    = "poll-interval"
+		)
 
-	runCmd.Flags().StringP(pollIntervalLong, "i", defaultPollInterval, "Interval at which pg_prefaulter polls the database for state change")
-	viper.BindPFlag(config.KeyPollInterval, runCmd.Flags().Lookup(pollIntervalLong))
+		runCmd.Flags().StringP(pollIntervalLong, "i", defaultPollInterval, "Interval at which pg_prefaulter polls the database for state change")
+		viper.BindPFlag(config.KeyPollInterval, runCmd.Flags().Lookup(pollIntervalLong))
+		viper.SetDefault(config.KeyPollInterval, defaultPollInterval)
+	}
 
-	runCmd.Flags().StringVarP(&pgXLogdumpPath, pgXLogdumpPathLong, pgXLogdumpPathShort,
-		pgXLogdumpPathDefault, "Path to pg_xlogdump(1)")
-	runCmd.Flags().StringVarP(&pgXLogdumpMode, pgXLogdumpModeLong, pgXLogdumpModeShort,
-		pgXLogdumpModeDefault, `pg_xlogdump(1) variant: "xlog" or "pg"`)
-	runCmd.Flags().StringArrayVarP(&walFiles, walFilesLong, walFilesShort,
-		walFiles, "WAL files to investigate")
-	runCmd.Flags().UintVarP(&walReadAhead, walReadAheadLong, walReadAheadShort,
-		walReadAheadDefault, "Number of WAL entries to perform read-ahead into")
-	runCmd.Flags().UintVarP(&walThreads, walThreadsLong, walThreadsShort,
-		walThreadsDefault, "Number of conurrent prefetch threads per WAL file")
+	{
+		const (
+			pgXLogdumpPathLong    = "xlogdump-bin"
+			pgXLogdumpPathShort   = "x"
+			pgXLogdumpPathDefault = "/usr/local/pg_xlogdump"
+		)
+
+		runCmd.Flags().StringP(pgXLogdumpPathLong, pgXLogdumpPathShort,
+			pgXLogdumpPathDefault, "Path to pg_xlogdump(1)")
+		viper.BindPFlag(config.KeyXLogPath, runCmd.Flags().Lookup(pgXLogdumpPathLong))
+		viper.SetDefault(config.KeyXLogPath, pgXLogdumpPathDefault)
+	}
+
+	{
+		const (
+			pgXLogdumpModeLong    = "xlog-mode"
+			pgXLogdumpModeShort   = "m"
+			pgXLogdumpModeDefault = "pg"
+		)
+		runCmd.Flags().StringP(pgXLogdumpModeLong, pgXLogdumpModeShort,
+			pgXLogdumpModeDefault, `pg_xlogdump(1) variant: "xlog" or "pg"`)
+		viper.BindPFlag(config.KeyXLogMode, runCmd.Flags().Lookup(pgXLogdumpModeLong))
+		viper.SetDefault(config.KeyXLogMode, pgXLogdumpModeDefault)
+	}
+
+	{
+		const (
+			walFilesLong  = "wal"
+			walFilesShort = "w"
+		)
+
+		defaultEmptyList := []string{}
+		runCmd.Flags().StringArrayP(walFilesLong, walFilesShort, defaultEmptyList, "WAL files to investigate")
+		viper.BindPFlag(config.KeyWALFiles, runCmd.Flags().Lookup(walFilesLong))
+		viper.SetDefault(config.KeyWALFiles, defaultEmptyList)
+	}
+
+	{
+		const (
+			walReadAheadLong    = "wal-readahead"
+			walReadAheadShort   = "n"
+			walReadAheadDefault = 4
+		)
+
+		runCmd.Flags().UintP(walReadAheadLong, walReadAheadShort,
+			walReadAheadDefault, "Number of WAL entries to perform read-ahead into")
+		viper.BindPFlag(config.KeyWALReadAhead, runCmd.Flags().Lookup(walReadAheadLong))
+		viper.SetDefault(config.KeyWALReadAhead, walReadAheadDefault)
+	}
+
+	{
+		const (
+			walThreadsLong    = "wal-threads"
+			walThreadsShort   = "t"
+			walThreadsDefault = 4
+		)
+
+		runCmd.Flags().UintP(walThreadsLong, walThreadsShort,
+			walThreadsDefault, "Number of conurrent prefetch threads per WAL file")
+		viper.BindPFlag(config.KeyWALThreads, runCmd.Flags().Lookup(walThreadsLong))
+		viper.SetDefault(config.KeyWALThreads, walThreadsDefault)
+	}
 }
 
 // _FDCacheValue is a wrapper value type that includes an RWMutex.
@@ -303,7 +331,7 @@ func walBossThread(ctx context.Context, threadID uint,
 				continue
 			}
 
-			cmd := exec.CommandContext(ctx, pgXLogdumpPath, fileName)
+			cmd := exec.CommandContext(ctx, viper.GetString(config.KeyXLogPath), fileName)
 			stdoutStderr, err := cmd.CombinedOutput()
 			if err != nil || len(stdoutStderr) == 0 {
 				log.Warn().Str("out", string(stdoutStderr)).Err(err).Msg("unable to process WAL file")

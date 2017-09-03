@@ -129,9 +129,10 @@ func init() {
 			pgdataPathDefault = "pgdata"
 		)
 
-		RootCmd.Flags().StringP(pgdataPathLong, pgdataPathShort, pgdataPathDefault, "Path to PGDATA")
-		viper.BindPFlag(config.KeyPGData, runCmd.Flags().Lookup(pgdataPathLong))
+		RootCmd.PersistentFlags().StringP(pgdataPathLong, pgdataPathShort, pgdataPathDefault, "Path to PGDATA")
+		viper.BindPFlag(config.KeyPGData, RootCmd.PersistentFlags().Lookup(pgdataPathLong))
 		viper.BindEnv(config.KeyPGData, "PGDATA")
+		viper.SetDefault(config.KeyPGData, pgdataPathDefault)
 	}
 
 	{
@@ -141,9 +142,10 @@ func init() {
 			pgHostShort       = "H"
 		)
 
-		RootCmd.Flags().StringP(pgHostLong, pgHostShort, defaultPGHostname, "Hostname to connect to PostgreSQL")
-		viper.BindPFlag(config.KeyPGHost, runCmd.Flags().Lookup(pgHostLong))
+		RootCmd.PersistentFlags().StringP(pgHostLong, pgHostShort, defaultPGHostname, "Hostname to connect to PostgreSQL")
+		viper.BindPFlag(config.KeyPGHost, RootCmd.PersistentFlags().Lookup(pgHostLong))
 		viper.BindEnv(config.KeyPGHost, "PGHOST")
+		viper.SetDefault(config.KeyPGHost, config.KeyPGHost)
 	}
 
 	{
@@ -153,9 +155,10 @@ func init() {
 			pgPortShort   = "p"
 		)
 
-		RootCmd.Flags().UintP(pgPortLong, pgPortShort, defaultPGPort, "Hostname to connect to PostgreSQL")
-		viper.BindPFlag(config.KeyPGPort, runCmd.Flags().Lookup(pgPortLong))
+		RootCmd.PersistentFlags().UintP(pgPortLong, pgPortShort, defaultPGPort, "Hostname to connect to PostgreSQL")
+		viper.BindPFlag(config.KeyPGPort, RootCmd.PersistentFlags().Lookup(pgPortLong))
 		viper.BindEnv(config.KeyPGPort, "PGPORT")
+		viper.SetDefault(config.KeyPGPort, defaultPGPort)
 	}
 
 	{
@@ -165,9 +168,10 @@ func init() {
 			pgdatabaseDefault = "postgres"
 		)
 
-		RootCmd.Flags().StringP(pgdatabaseLong, pgdatabaseShort, pgdatabaseDefault, "Database name to connect to")
-		viper.BindPFlag(config.KeyPGDatabase, runCmd.Flags().Lookup(pgdatabaseLong))
+		RootCmd.PersistentFlags().StringP(pgdatabaseLong, pgdatabaseShort, pgdatabaseDefault, "Database name to connect to")
+		viper.BindPFlag(config.KeyPGDatabase, RootCmd.PersistentFlags().Lookup(pgdatabaseLong))
 		viper.BindEnv(config.KeyPGDatabase, "PGDATABASE")
+		viper.SetDefault(config.KeyPGDatabase, pgdatabaseDefault)
 	}
 
 	{
@@ -177,23 +181,28 @@ func init() {
 			pgUsernameShort   = "U"
 		)
 
-		RootCmd.Flags().StringP(pgUsernameLong, pgUsernameShort, defaultPGUsername, "Username to connect to PostgreSQL")
-		viper.BindPFlag(config.KeyPGUser, runCmd.Flags().Lookup(pgUsernameLong))
+		RootCmd.PersistentFlags().StringP(pgUsernameLong, pgUsernameShort, defaultPGUsername, "Username to connect to PostgreSQL")
+		viper.BindPFlag(config.KeyPGUser, RootCmd.PersistentFlags().Lookup(pgUsernameLong))
 		viper.BindEnv(config.KeyPGUser, "PGUSER")
+		viper.SetDefault(config.KeyPGUser, defaultPGUsername)
 	}
 
 	{
+		const defaultPGPassword = ""
 		viper.BindEnv(config.KeyPGPassword, "PGPASSWORD")
+		viper.SetDefault(config.KeyPGPassword, defaultPGPassword)
 	}
 
 	{
 		const (
-			disableAgentLong  = "disable-agent"
-			disableAgentShort = "A"
+			disableAgentLong    = "disable-agent"
+			disableAgentShort   = "A"
+			defaultDisableAgent = false
 		)
 
-		RootCmd.Flags().BoolP(disableAgentLong, disableAgentShort, false, "Disable the gops(1) agent interface")
-		viper.BindPFlag(config.KeyDisableAgent, runCmd.Flags().Lookup(disableAgentLong))
+		RootCmd.PersistentFlags().BoolP(disableAgentLong, disableAgentShort, defaultDisableAgent, "Disable the gops(1) agent interface")
+		viper.BindPFlag(config.KeyDisableAgent, RootCmd.PersistentFlags().Lookup(disableAgentLong))
+		viper.SetDefault(config.KeyDisableAgent, defaultDisableAgent)
 	}
 }
 
