@@ -31,6 +31,7 @@ import (
 	"github.com/alecthomas/units"
 	"github.com/bluele/gcache"
 	"github.com/joyent/pg_prefaulter/agent"
+	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
@@ -86,11 +87,20 @@ var (
 // runCmd represents the run command
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Run pg_prefaulter",
-	Long:  `Run pg_prefaulter and begin faulting in PostgreSQL pages`,
+	Short: fmt.Sprintf("Run %s", buildtime.PROGNAME),
+	Long:  fmt.Sprintf(`Run %s and begin faulting in PostgreSQL pages`, buildtime.PROGNAME),
 
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		log.Debug().Msgf("args: %v", args)
+
+		// Perform input validation
+		{
+			validArgs := []string{"auto", "primary", "follower"}
+			if err := config.ValidStringArg(config.KeyMode, validArgs); err != nil {
+				return errors.Wrap(err, "mode validation")
+			}
+		}
+
 		walReadAhead := uint(viper.GetInt(config.KeyWALReadAhead))
 
 		defer func() {
@@ -154,7 +164,7 @@ var runCmd = &cobra.Command{
 
 		a, err := agent.New(config.NewDefault())
 		if err != nil {
-			return errors.Wrap(err, "unable to start the pg_prefaulter agent")
+			return errors.Wrap(err, "unable to start agent")
 		}
 		go a.Start()
 		defer a.Stop()
@@ -210,6 +220,9 @@ func init() {
 			modeShort       = "m"
 			modeAutoDefault = "auto"
 		)
+		// FIXME(seanc@): the list of available options needs to be pulled from a
+		// global constant.  This information is duplicated elsewhere in the
+		// validation.
 		runCmd.Flags().StringP(modeLong, modeShort, modeAutoDefault,
 			`Mode of operation of the database: "auto", "primary", "follower"`)
 		viper.BindPFlag(config.KeyMode, runCmd.Flags().Lookup(modeLong))
@@ -222,7 +235,7 @@ func init() {
 			defaultPollInterval = "1s"
 		)
 
-		runCmd.Flags().StringP(pollIntervalLong, "i", defaultPollInterval, "Interval at which pg_prefaulter polls the database for state change")
+		runCmd.Flags().StringP(pollIntervalLong, "i", defaultPollInterval, "Interval to poll the database for state change")
 		viper.BindPFlag(config.KeyPollInterval, runCmd.Flags().Lookup(pollIntervalLong))
 		viper.SetDefault(config.KeyPollInterval, defaultPollInterval)
 	}

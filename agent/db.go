@@ -4,9 +4,11 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx"
+	"github.com/joyent/pg_prefaulter/config"
 	"github.com/joyent/pg_prefaulter/lsn"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
+	"github.com/spf13/viper"
 )
 
 func connInit(conn *pgx.Conn) error {
@@ -14,20 +16,47 @@ func connInit(conn *pgx.Conn) error {
 	return nil
 }
 
-// isDBPrimry returns true when
-func (a *Agent) isDBPrimary() (bool, error) {
+type _DBState int
+
+const (
+	unknown _DBState = iota
+	primary
+	follower
+)
+
+// dbState returns a constant indicating the state of the database
+// (i.e. primary, follower).
+func (a *Agent) dbState() (_DBState, error) {
+	switch mode := viper.GetString(config.KeyMode); mode {
+	case "primary":
+		return primary, nil
+	case "follower":
+		return follower, nil
+	case "auto":
+		break
+	default:
+		panic(fmt.Sprintf("invalid mode: %q", mode))
+	}
+
 	tx, err := a.pool.BeginEx(a.shutdownCtx, nil)
 	if err != nil {
-		return false, errors.Wrap(err, "unable to determine if primary DB")
+		return unknown, errors.Wrap(err, "unable to determine if primary DB")
 	}
 	defer tx.RollbackEx(a.shutdownCtx)
 
 	var inRecovery bool
 	if err = tx.QueryRowEx(a.shutdownCtx, "SELECT pg_is_in_recovery()", nil).Scan(&inRecovery); err != nil {
-		return false, errors.Wrap(err, "unable to execute primary check")
+		return unknown, errors.Wrap(err, "unable to execute primary check")
 	}
 
-	return !inRecovery, nil
+	switch inRecovery {
+	case true:
+		return follower, nil
+	case false:
+		return primary, nil
+	default:
+		panic("what is logic?")
+	}
 }
 
 type LSNQuery int

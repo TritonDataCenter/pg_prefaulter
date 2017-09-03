@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/google/gops/agent"
+	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/joyent/pg_prefaulter/config"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog"
@@ -40,8 +41,8 @@ var (
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "pg_prefaulter",
-	Short: "pg_prefaulter pre-faults PostgreSQL heap pages based on WAL files",
+	Use:   buildtime.PROGNAME,
+	Short: buildtime.PROGNAME + `pre-faults PostgreSQL heap pages based on WAL files`,
 	Long: `
 PostgreSQL's WAL-receiver applies WAL files in serial.  This design implicitly
 assumes that the heap page required to apply the WAL entry is within the
@@ -51,14 +52,17 @@ the OS faults in the page from its storage.  For large working sets of data or
 when the filesystem cache is cold, this is problematic for streaming replicas
 because they will lag and fall behind.
 
-pg_prefaulter(1) mitigates this serially scheduled IO problem by reading WAL
-entries via pg_xlogdump(1) and performing parallel pread(2) calls in order to
-"pre-fault" the page into the OS's filesystem cache so that when the PostgreSQL
-WAL receiver goes to apply a WAL entry to its heap, the page is already loaded
-into the OS'es filesystem cache.
+` + buildtime.PROGNAME + `(1) mitigates this serially scheduled IO problem by
+reading WAL entries via pg_xlogdump(1) and performing parallel pread(2) calls in
+order to "pre-fault" the page into the OS's filesystem cache so that when the
+PostgreSQL WAL receiver goes to apply a WAL entry to its heap, the page is
+already loaded into the OS'es filesystem cache.
+
 `,
 
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Perform input validation
+
 		switch strings.ToUpper(logLevel) {
 		case "DEBUG":
 			zerolog.SetGlobalLevel(zerolog.DebugLevel)
@@ -120,7 +124,7 @@ func init() {
 	stdlog.SetOutput(zlog)
 
 	RootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "INFO", "Log level")
-	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.pg_prefaulter.yaml)")
+	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", viper.ConfigFileUsed(), "config file")
 
 	{
 		const (
@@ -221,7 +225,7 @@ func initConfig() {
 
 		// Search config in home directory with name ".cobra" (without extension).
 		viper.AddConfigPath(home)
-		viper.SetConfigName(".pg_prefaulter")
+		viper.SetConfigName("." + buildtime.PROGNAME)
 	}
 
 	// If a config file is found, read it in.

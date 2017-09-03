@@ -1,7 +1,11 @@
 package config
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/jackc/pgx"
+	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 )
@@ -29,9 +33,25 @@ func NewDefault() Config {
 				// Logger: logger,
 				// LogLevel: int,
 				RuntimeParams: map[string]string{
-					"application_name": "pg_prefaulter",
+					"application_name": buildtime.PROGNAME,
 				},
 			},
 		},
 	}
+}
+
+// ValidStringArg takes a viper key and a list of valid args.  If the key is not
+// valid, return an error.
+func ValidStringArg(argname string, validArgs []string) error {
+	argMap := make(map[string]struct{}, len(validArgs))
+	for _, a := range validArgs {
+		argMap[a] = struct{}{}
+	}
+
+	if _, found := argMap[viper.GetString(argname)]; !found {
+		// FIXME(seanc@): map the viper key back to a CLI arg long opt
+		return fmt.Errorf("invalid %s (HINT: valid args: %q)", argname, strings.Join(validArgs, ", "))
+	}
+
+	return nil
 }

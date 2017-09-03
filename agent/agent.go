@@ -62,36 +62,30 @@ func (a *Agent) Start() {
 
 	go a.startSignalHandler()
 
+	var loopImmediately bool = true
+	var dbState _DBState
+RETRY:
 	for i := 0; i < 3; i++ { // FIXME(seanc@): Should loop infinitely
-		var loopImmediately bool
-
-		var isPrimary bool
-		switch mode := viper.GetString(config.KeyMode); mode {
-		case "auto":
-			isPrimary, err = a.isDBPrimary()
-		case "primary":
-			isPrimary = true
-		case "follower":
-			isPrimary = false
-		default:
-			log.Error().Str("mode", mode).Msg("invalid mode, defaulting to auto")
-			isPrimary, err = a.isDBPrimary()
-		}
-
-		switch {
-		case err != nil:
-			log.Error().Err(err).Msg("unable to query the primary")
-			loopImmediately = false
-		case isPrimary:
-			loopImmediately = a.runPrimary()
-		default:
-			loopImmediately = a.runFollower()
-		}
-
 		if !loopImmediately {
 			d := viper.GetDuration(config.KeyPollInterval)
 			log.Debug().Dur("sleep duration", d).Msg("sleeping before next poll")
 			time.Sleep(d)
+		}
+
+		dbState, err = a.dbState()
+		if err != nil {
+			log.Error().Err(err).Msg("unable to determine if database is primary or not, retrying")
+			loopImmediately = false
+			goto RETRY
+		}
+
+		switch state := dbState; state {
+		case primary:
+			loopImmediately = a.runPrimary()
+		case follower:
+			loopImmediately = a.runFollower()
+		default:
+			panic(fmt.Sprintf("unknown state: %+v", state))
 		}
 	}
 
@@ -121,6 +115,7 @@ func (a *Agent) Wait() error {
 // iterations.
 func (a *Agent) runFollower() (loopImmediately bool) {
 	log.Debug().Msg("follower")
+
 	tx, err := a.pool.BeginEx(a.shutdownCtx, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("unable to begin transaction")
