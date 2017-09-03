@@ -56,13 +56,28 @@ func New(cfg config.Config) (a *Agent, err error) {
 // follower (the follower mode has its own criterium to figure out if it
 // needs to do work).
 func (a *Agent) Start() {
+	var err error
+
 	log.Debug().Msg("Starting agent")
 
 	go a.startSignalHandler()
 
 	for i := 0; i < 3; i++ { // FIXME(seanc@): Should loop infinitely
 		var loopImmediately bool
-		isPrimary, err := a.isDBPrimary()
+
+		var isPrimary bool
+		switch mode := viper.GetString(config.KeyMode); mode {
+		case "auto":
+			isPrimary, err = a.isDBPrimary()
+		case "primary":
+			isPrimary = true
+		case "follower":
+			isPrimary = false
+		default:
+			log.Error().Str("mode", mode).Msg("invalid mode, defaulting to auto")
+			isPrimary, err = a.isDBPrimary()
+		}
+
 		switch {
 		case err != nil:
 			log.Error().Err(err).Msg("unable to query the primary")

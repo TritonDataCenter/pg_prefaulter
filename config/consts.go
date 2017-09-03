@@ -1,6 +1,7 @@
 package config
 
 const (
+	KeyMode         = "mode"
 	KeyDisableAgent = "disable-agent"
 	KeyPGData       = "pg.data"
 	KeyPGDatabase   = "pg.database"

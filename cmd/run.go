@@ -206,6 +206,18 @@ func init() {
 
 	{
 		const (
+			modeLong        = "mode"
+			modeShort       = "m"
+			modeAutoDefault = "auto"
+		)
+		runCmd.Flags().StringP(modeLong, modeShort, modeAutoDefault,
+			`Mode of operation of the database: "auto", "primary", "follower"`)
+		viper.BindPFlag(config.KeyMode, runCmd.Flags().Lookup(modeLong))
+		viper.SetDefault(config.KeyMode, modeAutoDefault)
+	}
+
+	{
+		const (
 			pollIntervalLong    = "poll-interval"
 			defaultPollInterval = "1s"
 		)
@@ -269,7 +281,7 @@ func init() {
 	{
 		const (
 			pgXLogdumpModeLong    = "xlog-mode"
-			pgXLogdumpModeShort   = "m"
+			pgXLogdumpModeShort   = "X"
 			pgXLogdumpModeDefault = "pg"
 		)
 		runCmd.Flags().StringP(pgXLogdumpModeLong, pgXLogdumpModeShort,
