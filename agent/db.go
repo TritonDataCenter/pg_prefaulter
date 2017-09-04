@@ -3,10 +3,8 @@ package agent
 import (
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/jackc/pgx"
-	"github.com/jackc/pgx/pgtype"
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/joyent/pg_prefaulter/lsn"
 	"github.com/pkg/errors"
@@ -128,7 +126,7 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (uint64, error) {
 	case _QueryLagPrimary:
 		sql = `SELECT state, sync_state, (pg_xlog_location_diff(sent_location, write_location))::FLOAT8 AS durability_lag_bytes, (pg_xlog_location_diff(sent_location, flush_location))::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(sent_location, replay_location))::FLOAT8 AS visibility_lag_bytes, '0'::INTERVAL AS last_commit_age FROM pg_stat_replication WHERE application_name = 'walreceiver' ORDER BY visibility_lag_bytes`
 	case _QueryLagFollower:
-		sql = `SELECT 'receiving' AS state, 'applying' AS sync_state, 0.0::FLOAT8 AS durability_lag_bytes, 0.0::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(pg_last_xlog_receive_location(), pg_last_xlog_replay_location()))::FLOAT8 AS visibility_lag_bytes, (NOW() - pg_last_xact_replay_timestamp())::INTERVAL AS last_commit_age`
+		sql = `SELECT 'receiving' AS state, 'applying' AS sync_state, 0.0::FLOAT8 AS durability_lag_bytes, 0.0::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(pg_last_xlog_receive_location(), pg_last_xlog_replay_location()))::FLOAT8 AS visibility_lag_bytes, EXTRACT(EPOCH FROM (NOW() - pg_last_xact_replay_timestamp())::INTERVAL) AS last_commit_age`
 	default:
 		panic(fmt.Sprintf("unsupported query: %v", lagQuery))
 	}
@@ -142,20 +140,13 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (uint64, error) {
 	defer rows.Close()
 
 	var senderState, syncState string
-	var durabilityLag, flushLag, visibilityLag float64 = math.NaN(), math.NaN(), math.NaN()
-	var lastTransaction pgtype.Interval
+	var durabilityLag, flushLag, visibilityLag, txnAge float64 = math.NaN(), math.NaN(), math.NaN(), math.NaN()
 	var numRows int
 	for rows.Next() {
-		err = rows.Scan(&senderState, &syncState, &durabilityLag, &flushLag, &visibilityLag, &lastTransaction)
+		err = rows.Scan(&senderState, &syncState, &durabilityLag, &flushLag, &visibilityLag, &txnAge)
 		if err != nil {
 			return unknownLag, errors.Wrap(err, "unable to scan lag response")
 		}
-
-		var txnAge time.Duration
-		if err = lastTransaction.AssignTo(&txnAge); err != nil {
-			return unknownLag, errors.Wrap(err, "unable to scan interval")
-		}
-		txnAgeFloat := float64(txnAge / time.Millisecond)
 
 		numRows++
 
@@ -168,8 +159,8 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (uint64, error) {
 			a.metrics.RecordValue(metricsDBLagFlush, flushLag)
 			a.metrics.Gauge(metricsDBLagFlushBytes, flushLag)
 		case _QueryLagFollower:
-			a.metrics.RecordValue(metricsDBLastTransaction, txnAgeFloat)
-			a.metrics.Gauge(metricsDBLastTransactionAge, txnAgeFloat)
+			a.metrics.RecordValue(metricsDBLastTransaction, txnAge)
+			a.metrics.Gauge(metricsDBLastTransactionAge, txnAge)
 		}
 
 		a.metrics.RecordValue(metricsDBLagVisibility, visibilityLag)
