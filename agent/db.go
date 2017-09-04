@@ -124,7 +124,7 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (uint64, error) {
 	var sql string
 	switch lagQuery {
 	case _QueryLagPrimary:
-		sql = `SELECT state, sync_state, (pg_xlog_location_diff(sent_location, write_location))::FLOAT8 AS durability_lag_bytes, (pg_xlog_location_diff(sent_location, flush_location))::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(sent_location, replay_location))::FLOAT8 AS visibility_lag_bytes, EXTRACT(EPOCH FROM '0'::INTERVAL) AS last_commit_age FROM pg_stat_replication WHERE application_name = 'walreceiver' ORDER BY visibility_lag_bytes`
+		sql = `SELECT state, sync_state, (pg_xlog_location_diff(sent_location, write_location))::FLOAT8 AS durability_lag_bytes, (pg_xlog_location_diff(sent_location, flush_location))::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(sent_location, replay_location))::FLOAT8 AS visibility_lag_bytes, EXTRACT(EPOCH FROM '0'::INTERVAL) AS last_commit_age FROM pg_stat_replication ORDER BY visibility_lag_bytes`
 	case _QueryLagFollower:
 		sql = `SELECT 'receiving' AS state, 'applying' AS sync_state, 0.0::FLOAT8 AS durability_lag_bytes, 0.0::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(pg_last_xlog_receive_location(), pg_last_xlog_replay_location()))::FLOAT8 AS visibility_lag_bytes, EXTRACT(EPOCH FROM (NOW() - pg_last_xact_replay_timestamp())::INTERVAL) AS last_commit_age`
 	default:
