@@ -31,7 +31,7 @@ func NewDefault() Config {
 			// cmc.Log = cgmlog
 		}
 		cmc.Debug = IsDebug()
-		cmc.ResetCounters = "true"
+		cmc.ResetCounters = "false"
 		cmc.ResetGauges = "true"
 		cmc.ResetHistograms = "true"
 		cmc.ResetText = "true"

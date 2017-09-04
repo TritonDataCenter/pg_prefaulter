@@ -128,7 +128,7 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (uint64, error) {
 	case _QueryLagPrimary:
 		sql = `SELECT state, sync_state, (pg_xlog_location_diff(sent_location, write_location))::FLOAT8 AS durability_lag_bytes, (pg_xlog_location_diff(sent_location, flush_location))::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(sent_location, replay_location))::FLOAT8 AS visibility_lag_bytes, '0'::INTERVAL AS last_commit_age FROM pg_stat_replication WHERE application_name = 'walreceiver' ORDER BY visibility_lag_bytes`
 	case _QueryLagFollower:
-		sql = `SELECT 'receiving' AS state, 'applying' AS sync_state, 0.0::FLOAT8 AS durability_lag_bytes, 0.0::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(pg_last_xlog_replay_location(), pg_last_xlog_replay_location()))::FLOAT8 AS visibility_lag_bytes, (NOW() - pg_last_xact_replay_timestamp())::INTERVAL AS last_commit_age`
+		sql = `SELECT 'receiving' AS state, 'applying' AS sync_state, 0.0::FLOAT8 AS durability_lag_bytes, 0.0::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(pg_last_xlog_receive_location(), pg_last_xlog_replay_location()))::FLOAT8 AS visibility_lag_bytes, (NOW() - pg_last_xact_replay_timestamp())::INTERVAL AS last_commit_age`
 	default:
 		panic(fmt.Sprintf("unsupported query: %v", lagQuery))
 	}
@@ -152,22 +152,30 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (uint64, error) {
 		}
 
 		var txnAge time.Duration
-		if err = lastTransaction.Set(&txnAge); err != nil {
+		if err = lastTransaction.AssignTo(&txnAge); err != nil {
 			return unknownLag, errors.Wrap(err, "unable to scan interval")
 		}
 		txnAgeFloat := float64(txnAge / time.Millisecond)
 
-		a.metrics.RecordValue(metricsDBLagDurability, durabilityLag)
-		a.metrics.Gauge(metricsDBLagDurabilityBytes, durabilityLag)
-		a.metrics.RecordValue(metricsDBLagFlush, flushLag)
-		a.metrics.Gauge(metricsDBLagFlushBytes, flushLag)
+		numRows++
+
+		// Only record values that actually change.  Don't record metrics that are
+		// missing on a shard member.
+		switch lagQuery {
+		case _QueryLagPrimary:
+			a.metrics.RecordValue(metricsDBLagDurability, durabilityLag)
+			a.metrics.Gauge(metricsDBLagDurabilityBytes, durabilityLag)
+			a.metrics.RecordValue(metricsDBLagFlush, flushLag)
+			a.metrics.Gauge(metricsDBLagFlushBytes, flushLag)
+		case _QueryLagFollower:
+			a.metrics.RecordValue(metricsDBLastTransaction, txnAgeFloat)
+			a.metrics.Gauge(metricsDBLastTransactionAge, txnAgeFloat)
+		}
+
 		a.metrics.RecordValue(metricsDBLagVisibility, visibilityLag)
 		a.metrics.Gauge(metricsDBLagVisibilityBytes, visibilityLag)
-		a.metrics.RecordValue(metricsDBLastTransaction, txnAgeFloat)
-		a.metrics.Gauge(metricsDBLastTransactionAge, txnAgeFloat)
 		a.metrics.SetTextValue(metricsDBPeerSyncState, syncState)
 		a.metrics.SetTextValue(metricsDBSenderState, senderState)
-		numRows++
 	}
 
 	if rows.Err() != nil {

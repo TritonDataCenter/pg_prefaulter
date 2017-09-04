@@ -4,17 +4,17 @@ set -e
 
 if [ -z "${MANTA_USER}" ]; then
     echo "MANTA_USER unset"
-    exit 1
+    exit 0
 fi
 
 if [ -z "${MANTA_URL}" ]; then
     echo "MANTA_URL unset"
-    exit 1
+    exit 0
 fi
 
 if [ -z "${MANTA_KEY_ID}" ]; then
     echo "MANTA_KEY_ID unset"
-    exit 1
+    exit 0
 fi
 
 mmkdir -p "/${MANTA_USER}/public/pg_prefaulter/"
