@@ -194,7 +194,7 @@ func (a *Agent) queryLastLog() error {
 	defer rows.Close()
 
 	var numWALFiles uint64
-	defer func() { a.metrics.Set(metricsDBWALCount, numWALFiles) }()
+	defer func() { a.metrics.Add(metricsDBWALCount, numWALFiles) }()
 
 	var walFile string
 	for rows.Next() {
