@@ -402,7 +402,7 @@ func init() {
 		)
 		var defaultValue string = `app:` + buildtime.PROGNAME
 		if hostname, err := os.Hostname(); err == nil {
-			defaultValue = fmt.Sprintf("%s, host:%s", defaultValue, hostname)
+			defaultValue = fmt.Sprintf("%s,host:%s", defaultValue, hostname)
 		}
 
 		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)

@@ -47,15 +47,15 @@ func NewDefault() Config {
 		cmc.CheckManager.Check.DisplayName = viper.GetString(KeyCirconusCheckDisplayName)
 		cmc.CheckManager.Check.TargetHost = viper.GetString(KeyCirconusCheckTargetHost)
 
-		cmc.CheckManager.Check.SearchTag = viper.GetString(KeyCirconusCheckSearchTag)
+		cmc.CheckManager.Check.SearchTag = strings.ToLower(viper.GetString(KeyCirconusCheckSearchTag))
 		cmc.CheckManager.Check.Secret = viper.GetString(KeyCirconusCheckSecret)
-		cmc.CheckManager.Check.Tags = viper.GetString(KeyCirconusCheckTags)
+		cmc.CheckManager.Check.Tags = strings.ToLower(viper.GetString(KeyCirconusCheckTags))
 		cmc.CheckManager.Check.MaxURLAge = viper.GetString(KeyCirconusCheckMaxURLAge)
 		cmc.CheckManager.Check.ForceMetricActivation = viper.GetString(KeyCirconusCheckForceMetricActivation)
 
 		// Broker configuration options
 		cmc.CheckManager.Broker.ID = viper.GetString(KeyCirconusBrokerID)
-		cmc.CheckManager.Broker.SelectTag = viper.GetString(KeyCirconusBrokerSelectTag)
+		cmc.CheckManager.Broker.SelectTag = strings.ToLower(viper.GetString(KeyCirconusBrokerSelectTag))
 		cmc.CheckManager.Broker.MaxResponseTime = viper.GetString(KeyCirconusBrokerMaxResponseTime)
 	}
 
