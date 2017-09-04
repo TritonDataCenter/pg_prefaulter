@@ -186,8 +186,10 @@ func (a *Agent) startSignalHandler() {
 	case sig := <-a.signalCh:
 		log.Info().Str("signal", sig.String()).Msg("Received signal")
 		switch sig {
-		case os.Interrupt:
+		case os.Interrupt, unix.SIGTERM:
 			a.shutdown()
+		case unix.SIGPIPE, unix.SIGHUP:
+			// Noop
 		case unix.SIGINFO:
 			stacklen := runtime.Stack(buf, true)
 			fmt.Printf("=== received SIGINFO ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
