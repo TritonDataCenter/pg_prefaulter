@@ -90,6 +90,7 @@ var runCmd = &cobra.Command{
 	Long:  fmt.Sprintf(`Run %s and begin faulting in PostgreSQL pages`, buildtime.PROGNAME),
 
 	PreRunE: func(cmd *cobra.Command, args []string) error {
+		log.Debug().Str("config-file", viper.ConfigFileUsed()).Msg("")
 		log.Debug().Msgf("args: %v", args)
 
 		// Perform input validation

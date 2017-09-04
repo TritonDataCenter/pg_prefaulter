@@ -13,8 +13,28 @@
 
 package main
 
-import "github.com/joyent/pg_prefaulter/cmd"
+import (
+	"github.com/joyent/pg_prefaulter/buildtime"
+	"github.com/joyent/pg_prefaulter/cmd"
+)
 
 func main() {
 	cmd.Execute()
+}
+
+// A collection of variables set at link-time
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+	tag     = ""
+)
+
+// Foist various build-time constants into the buildtime package so they can be
+// referenced from different packages.
+func init() {
+	buildtime.COMMIT = commit
+	buildtime.VERSION = version
+	buildtime.DATE = date
+	buildtime.TAG = tag
 }

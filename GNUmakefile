@@ -33,6 +33,15 @@ fmt: ## 10 fmt and simplify the code
 vendor-status: ## 10 Display the vendor/ status
 	@dep status
 
+.PHONY: release
+release: ## 10 Build a release
+	#goreleaser --release-notes=release_notes.md
+	@goreleaser
+
+.PHONY: release-snapshot
+release-snapshot: ## 10 Build a snapshot release
+	@goreleaser --snapshot --skip-validate --rm-dist
+
 ### PostgreSQL-specific targets
 
 PGVERSION?=96

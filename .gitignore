@@ -3,3 +3,4 @@ pg_prefaulter
 .pgdata_follower/
 .pgdata_primary/
 pg_prefaulter.toml
+dist/

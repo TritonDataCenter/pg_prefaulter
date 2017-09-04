@@ -78,6 +78,14 @@ A complete configuration file with all options listed can be seen in
 5. `make check`
 6. `./pg_prefaulter ...` # Iterate
 
+To cross-compile and build a release use
+https://github.com/goreleaser/goreleaser[`goreleaser`] and the `make release` or
+`make release-snapshot` targets.  For development, the following should be
+sufficient:
+
+1. `go get -u github.com/goreleaser/goreleaser`
+2. `goreleaser --snapshot --skip-validate --skip-publish --rm-dist`
+
 [source,sh]
 ----
 $ make
@@ -85,6 +93,8 @@ pg_prefaulter make(1) targets:
 build            Build pg_prefaulter binary
 check            Run go test
 fmt              fmt and simplify the code
+release-snapshot  Build a snapshot release
+release          Build a release
 vendor-status    Display the vendor/ status
 vet              vet the binary (excluding dependencies)
 
