@@ -6,12 +6,15 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/alecthomas/units"
+	cgm "github.com/circonus-labs/circonus-gometrics"
 	"github.com/jackc/pgx"
+	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
@@ -30,13 +33,23 @@ type Agent struct {
 	shutdownCtx context.Context
 
 	pool *pgx.ConnPool
+
+	metrics *cgm.CirconusMetrics
+
+	walLock    sync.RWMutex
+	lastWALLog string
 }
 
 func New(cfg config.Config) (a *Agent, err error) {
 	a = &Agent{}
 
+	a.metrics, err = cgm.NewCirconusMetrics(cfg.Metrics)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to create a stats agent")
+	}
+
 	{
-		poolConfig := cfg.ConnPoolConfig
+		poolConfig := cfg.DBPool
 		poolConfig.AfterConnect = connInit
 		if a.pool, err = pgx.NewConnPool(poolConfig); err != nil {
 			return nil, errors.Wrap(err, "unable to create a new DB connection pool")
@@ -58,16 +71,29 @@ func New(cfg config.Config) (a *Agent, err error) {
 func (a *Agent) Start() {
 	var err error
 
-	log.Debug().Msg("Starting agent")
+	log.Info().Msg("Starting " + buildtime.PROGNAME + " agent")
 
 	go a.startSignalHandler()
 
-	var loopImmediately bool = true
+	if viper.GetBool(config.KeyCirconusEnabled) {
+		a.metrics.Start()
+	}
+
 	var dbState _DBState
+	a.metrics.SetTextFunc(metricsDBState, func() string {
+		return dbState.String()
+	})
+	defer a.metrics.RemoveTextFunc(metricsDBState)
+
+	var loopImmediately bool = true
 RETRY:
-	for i := 0; i < 3; i++ { // FIXME(seanc@): Should loop infinitely
+	for {
+		if a.isShuttingDown() {
+			break RETRY
+		}
+
 		if !loopImmediately {
-			d := viper.GetDuration(config.KeyPollInterval)
+			d := viper.GetDuration(config.KeyPGPollInterval)
 			log.Debug().Dur("sleep duration", d).Msg("sleeping before next poll")
 			time.Sleep(d)
 		}
@@ -79,24 +105,24 @@ RETRY:
 			goto RETRY
 		}
 
+		// FIXME(seanc@): Convert this from mode-specific methods to an interface
+		// that is shared between a primary and follower interface.
 		switch state := dbState; state {
-		case primary:
+		case _DBStatePrimary:
 			loopImmediately = a.runPrimary()
-		case follower:
+		case _DBStateFollower:
 			loopImmediately = a.runFollower()
 		default:
 			panic(fmt.Sprintf("unknown state: %+v", state))
 		}
 	}
-
-	// FIXME(seanc@): until the main logic is complete, shutdown prematurely
-	a.Stop()
 }
 
 // Stop cleans up and shuts down the Agent
 func (a *Agent) Stop() {
 	a.stopSignalHandler()
 	a.shutdown()
+	a.metrics.Flush()
 	a.pool.Close()
 }
 
@@ -110,18 +136,34 @@ func (a *Agent) Wait() error {
 	return nil
 }
 
+// isShuttingDown is a convenience method that returns true when the agent is
+// shutting down.
+func (a *Agent) isShuttingDown() bool {
+	select {
+	case <-a.shutdownCtx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
 // runFollower is excuted when talking to a readonly follower.  When returning
 // true, we're requesting an immediately loop without any pause between
 // iterations.
 func (a *Agent) runFollower() (loopImmediately bool) {
 	log.Debug().Msg("follower")
 
-	tx, err := a.pool.BeginEx(a.shutdownCtx, nil)
+	_, err := a.queryLag(_QueryLagFollower)
 	if err != nil {
-		log.Error().Err(err).Msg("unable to begin transaction")
+		log.Error().Err(err).Msg("unable to query follower lag")
 		return false
 	}
-	defer tx.RollbackEx(a.shutdownCtx)
+
+	err = a.queryLastLog()
+	if err != nil {
+		log.Error().Err(err).Msg("unable to query last WAL lag")
+		return false
+	}
 
 	lsn, err := a.queryLSN(LastXLogReplayLocation)
 	if err != nil {
@@ -130,13 +172,7 @@ func (a *Agent) runFollower() (loopImmediately bool) {
 	}
 
 	log.Debug().Str("lsn", lsn.String()).Str("wal", lsn.WALFileName()).Msg("")
-	return true
-}
-
-// runPrimary is executed when talking to a writable database.
-func (a *Agent) runPrimary() (loopImmediately bool) {
-	log.Debug().Msg("primary")
-	return false
+	return false // FIXME(seanc@): Should return true if we need to loop immediately
 }
 
 // signalHandler runs the signal handler thread

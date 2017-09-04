@@ -14,6 +14,18 @@
   revision = "04d92e137110a022a213a7919825272072df2823"
 
 [[projects]]
+  name = "github.com/circonus-labs/circonus-gometrics"
+  packages = [".","api","api/config","checkmgr"]
+  revision = "85eb4cccf312bf5868a05cceef09cf75dd18dddd"
+  version = "v1.0.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/circonus-labs/circonusllhist"
+  packages = ["."]
+  revision = "6e85b9352cf0c2bb969831347491388bb3ae9c69"
+
+[[projects]]
   name = "github.com/fsnotify/fsnotify"
   packages = ["."]
   revision = "629574ca2a5df945712d3079857300b5e4da0236"
@@ -24,6 +36,18 @@
   packages = ["agent","internal","signal"]
   revision = "fa6968806ca68b7db113256f300d82b5206a2c3c"
   version = "v0.3.1"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/hashicorp/go-cleanhttp"
+  packages = ["."]
+  revision = "3573b8b52aa7b37b9358d966a898feb387f62437"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/hashicorp/go-retryablehttp"
+  packages = ["."]
+  revision = "794af36148bf63c118d6db80eb902a136b907e71"
 
 [[projects]]
   branch = "master"
@@ -166,6 +190,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "994ce85122812393bbaa504c3a9745c0dc9a0cd9148340be41773dacdc430c2d"
+  inputs-digest = "45ecc733181d4965133969938d79c091e8878b23ffac2fb6a015397a6eca2b9f"
   solver-name = "gps-cdcl"
   solver-version = 1

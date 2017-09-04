@@ -5,10 +5,123 @@ include::front-matter.adoc[]
 [[usage]]
 == Usage
 
-TBD.
+[source,sh]
+----
+$ go get github.com/joyent/pg_prefaulter                // <1>
+$ pg_prefaulter run                                     // <2>
+$ pg_prefaulter -l DEBUG run                            // <3>
+$ pg_prefaulter -l DEBUG run -D .pgdata_primary -p 5433 // <4>
+$ pg_prefaulter -h                                      // <5>
+$ pg_prefaulter run -h                                  // <6>
+----
+<1> Build and install `pg_prefaulter` into `$GOPATH/bin` (where `GOPATH` is
+    likely `go env GOPATH`).
+<2> The default mode of running `pg_prefaulter`
+<3> Run `pg_preafulter` with ``DEBUG``-level logging.
+<4> Run `pg_prefaulter` with various PG connect options.
+<5> `pg_prefaulter` global help options
+<6> ``pg_prefaulter``'s ``run``-specific options
 
 NOTE: `pg_prefaulter` exposes itself as a https://github.com/google/gops[`gops`
 agent].
+
+[[config]]
+== Configuration Files
+
+The following is an example configuration file.  This can be used instead of CLI
+arguments.  The default configuration filename is `pg_prefaulter.toml`.  The
+following is a reasonable default `pg_prefaulter.toml` configuration file.
+
+[source,toml,numbered]
+----
+[log]
+# level can be set to "DEBUG", "INFO", "WARN", "ERROR", or "FATAL"
+#level = "INFO"
+
+[postgresql]
+#pgdata = "pgdata"
+#database = "postgres"
+#host = "/tmp"
+#password = ""
+#port = 5432
+#user = "postgres"
+
+[postgresql.xlog]
+#pg_xlogdump-path = "/usr/local/bin/pg_xlogdump"
+
+[circonus]
+#enabled = true
+
+[circonus.api]
+# token is a required value if circonus.enabled=true
+#token = ""
+
+[circonus.broker]
+# id should be set to "35" (the public HTTPTrap broker) if you have enterprise
+# brokers configured in your account.
+#id = 35
+
+[circonus.check]
+#tags = "dc1:mydc"
+----
+
+A complete configuration file follows for documentation purposes (most options
+are not required):
+
+[source,toml,numbered]
+----
+[log]
+#level = "INFO"
+
+[postgresql]
+#pgdata = "pgdata"
+#database = "postgres"
+#host = "/tmp"
+#mode = "auto"
+#password = ""
+#poll-interval = "1s"
+#port = 5432
+#user = "postgres"
+
+[postgresql.wal]
+#read-ahead = 4
+#threads = 4
+
+[postgresql.xlog]
+#mode = "pg"
+#dump-path = "/usr/local/bin/pg_xlogdump"x
+
+[circonus]
+#enabled = true
+
+[circonus.api]
+# token is a required value if circonus.enabled=true
+#token = ""
+#url = "https://api.circonus.com/v2"
+
+[circonus.broker]
+# id should be set to "35" (the public HTTPTrap broker) if you have enterprise
+# brokers configured in your account.
+#id = 35
+#max_response_time = "500ms"
+#select_tag = ""
+
+[circonus.check]
+#display_name = "pg_prefaulter"
+#force_metric_activation = false
+#id = ""
+#instance_id = ""
+#max_url_age = "5m"
+#search_tag = ""
+#secret = ""
+#submission_url = ""
+#tags = ""
+#target_host = "$HOSTNAME"
+
+[google.agent]
+#enabled = true
+----
+
 
 [[development]]
 == Development
@@ -17,7 +130,8 @@ agent].
 2. `make freshdb-follower`
 3. `make resetdb`
 4. `make build`
-4. `./pg_prefaulter ...` # Iterate
+5. `make check`
+6. `./pg_prefaulter ...` # Iterate
 
 [source,sh]
 ----
@@ -59,17 +173,11 @@ help             This help message
 [[todo]]
 == TODO
 
-* TBD
-
-
-[[gen-data]]
-== Generate Test Data
-
-[source,sql]
-----
-CREATE TABLE garbage AS SELECT s, md5(random()::text) FROM generate_series(1,100000) s;
-----
-
-////
-time find /manatee/pg/data/pg_xlog/ | sort | head -n 100 | xargs -n1 basename | xargs -n 1 ./pg_prefaulter.illumos run --log-level=INFO --pgdata /manatee/pg/data/ --xlogdump-bin=./xlogdump --xlog-mode=xlog --wal
-////
+* Add shell completion targets
+* Add manpage generation targets
+* Add markdown generation targets
+* Add a generic status command to show:
+** how far behind a given followers are when connected to the primary
+** how far behind a given follower is when connected to the follower
+* Add a SIGINFO handler to log stats about the current state of the process
+* Expose expvar interface to enable online parameter twiddling

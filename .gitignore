@@ -1,4 +1,4 @@
-pg_prefaulter*
+pg_prefaulter
 .pwfile
 .pgdata_follower/
 .pgdata_primary/

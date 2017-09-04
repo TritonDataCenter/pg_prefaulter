@@ -26,8 +26,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/alecthomas/units"
 	"github.com/bluele/gcache"
 	"github.com/joyent/pg_prefaulter/agent"
@@ -37,6 +35,7 @@ import (
 	log "github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -96,7 +95,7 @@ var runCmd = &cobra.Command{
 		// Perform input validation
 		{
 			validArgs := []string{"auto", "primary", "follower"}
-			if err := config.ValidStringArg(config.KeyMode, validArgs); err != nil {
+			if err := config.ValidStringArg(config.KeyPGMode, validArgs); err != nil {
 				return errors.Wrap(err, "mode validation")
 			}
 		}
@@ -113,17 +112,12 @@ var runCmd = &cobra.Command{
 				Str(config.KeyPGUser, viper.GetString(config.KeyPGUser)).
 				Str(config.KeyXLogMode, viper.GetString(config.KeyXLogMode)).
 				Str(config.KeyXLogPath, viper.GetString(config.KeyXLogPath)).
-				Dur(config.KeyPollInterval, viper.GetDuration(config.KeyPollInterval)).
-				Strs(config.KeyWALFiles, viper.GetStringSlice(config.KeyWALFiles)).
+				Dur(config.KeyPGPollInterval, viper.GetDuration(config.KeyPGPollInterval)).
 				Uint(config.KeyWALReadAhead, walReadAhead).
 				Uint(config.KeyWALThreads, uint(viper.GetInt(config.KeyWALThreads))).
 				Uint("io-req-dedup-size", ioReqCacheSize).
 				Msg("flags")
 		}()
-
-		if len(viper.GetStringSlice(config.KeyWALFiles)) == 0 {
-			return fmt.Errorf("no WAL files specified")
-		}
 
 		var procNumFiles unix.Rlimit
 		if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &procNumFiles); err != nil {
@@ -225,8 +219,8 @@ func init() {
 		// validation.
 		runCmd.Flags().StringP(modeLong, modeShort, modeAutoDefault,
 			`Mode of operation of the database: "auto", "primary", "follower"`)
-		viper.BindPFlag(config.KeyMode, runCmd.Flags().Lookup(modeLong))
-		viper.SetDefault(config.KeyMode, modeAutoDefault)
+		viper.BindPFlag(config.KeyPGMode, runCmd.Flags().Lookup(modeLong))
+		viper.SetDefault(config.KeyPGMode, modeAutoDefault)
 	}
 
 	{
@@ -236,20 +230,8 @@ func init() {
 		)
 
 		runCmd.Flags().StringP(pollIntervalLong, "i", defaultPollInterval, "Interval to poll the database for state change")
-		viper.BindPFlag(config.KeyPollInterval, runCmd.Flags().Lookup(pollIntervalLong))
-		viper.SetDefault(config.KeyPollInterval, defaultPollInterval)
-	}
-
-	{
-		const (
-			walFilesLong  = "wal"
-			walFilesShort = "w"
-		)
-
-		defaultEmptyList := []string{}
-		runCmd.Flags().StringArrayP(walFilesLong, walFilesShort, defaultEmptyList, "WAL files to investigate")
-		viper.BindPFlag(config.KeyWALFiles, runCmd.Flags().Lookup(walFilesLong))
-		viper.SetDefault(config.KeyWALFiles, defaultEmptyList)
+		viper.BindPFlag(config.KeyPGPollInterval, runCmd.Flags().Lookup(pollIntervalLong))
+		viper.SetDefault(config.KeyPGPollInterval, defaultPollInterval)
 	}
 
 	{

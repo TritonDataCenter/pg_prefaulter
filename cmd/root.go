@@ -24,7 +24,6 @@ import (
 	"github.com/google/gops/agent"
 	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/joyent/pg_prefaulter/config"
-	homedir "github.com/mitchellh/go-homedir"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -33,10 +32,7 @@ import (
 
 // CLI flags
 var (
-	cfgFile  string
-	logLevel string
-
-	gopsAgentEndpoint string = "localhost:5431"
+	cfgFile string
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -63,7 +59,7 @@ already loaded into the OS'es filesystem cache.
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Perform input validation
 
-		switch strings.ToUpper(logLevel) {
+		switch logLevel := strings.ToUpper(viper.GetString(config.KeyLogLevel)); logLevel {
 		case "DEBUG":
 			zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		case "INFO":
@@ -75,15 +71,18 @@ already loaded into the OS'es filesystem cache.
 		case "FATAL":
 			zerolog.SetGlobalLevel(zerolog.FatalLevel)
 		default:
+			// FIXME(seanc@): move the supported log levels into a global constant
 			return fmt.Errorf("unsupported error level: %q (supported levels: %s)", logLevel,
 				strings.Join([]string{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}, " "))
 		}
 
 		go func() {
-			if viper.GetBool(config.KeyDisableAgent) {
+			if !viper.GetBool(config.KeyGoogleAgentEnable) {
 				log.Debug().Msg("gops(1) agent disabled by request")
 				return
 			}
+
+			const gopsAgentEndpoint = "localhost:5431"
 
 			options := &agent.Options{
 				Addr:              gopsAgentEndpoint,
@@ -123,113 +122,390 @@ func init() {
 	stdlog.SetFlags(0)
 	stdlog.SetOutput(zlog)
 
-	RootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "INFO", "Log level")
-	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", viper.ConfigFileUsed(), "config file")
+	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", buildtime.PROGNAME+`.toml`, "config file")
 
 	{
 		const (
-			pgdataPathLong    = "pgdata"
-			pgdataPathShort   = "D"
-			pgdataPathDefault = "pgdata"
+			key          = config.KeyLogLevel
+			longName     = "log-level"
+			shortName    = "l"
+			defaultValue = "INFO"
+			description  = "Log level"
 		)
 
-		RootCmd.PersistentFlags().StringP(pgdataPathLong, pgdataPathShort, pgdataPathDefault, "Path to PGDATA")
-		viper.BindPFlag(config.KeyPGData, RootCmd.PersistentFlags().Lookup(pgdataPathLong))
-		viper.BindEnv(config.KeyPGData, "PGDATA")
-		viper.SetDefault(config.KeyPGData, pgdataPathDefault)
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
 	}
 
 	{
 		const (
-			defaultPGHostname = "/tmp"
-			pgHostLong        = "hostname"
-			pgHostShort       = "H"
+			key          = config.KeyPGData
+			longName     = "pgdata"
+			shortName    = "D"
+			defaultValue = "pgdata"
+			envVar       = "PGDATA"
+			description  = "Path to PGDATA"
 		)
 
-		RootCmd.PersistentFlags().StringP(pgHostLong, pgHostShort, defaultPGHostname, "Hostname to connect to PostgreSQL")
-		viper.BindPFlag(config.KeyPGHost, RootCmd.PersistentFlags().Lookup(pgHostLong))
-		viper.BindEnv(config.KeyPGHost, "PGHOST")
-		viper.SetDefault(config.KeyPGHost, config.KeyPGHost)
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
 	}
 
 	{
 		const (
-			defaultPGPort = 5432
-			pgPortLong    = "port"
-			pgPortShort   = "p"
+			key          = config.KeyPGHost
+			longName     = "hostname"
+			shortName    = "H"
+			defaultValue = "/tmp"
+			envVar       = "PGHOST"
+			description  = "Hostname to connect to PostgreSQL"
 		)
 
-		RootCmd.PersistentFlags().UintP(pgPortLong, pgPortShort, defaultPGPort, "Hostname to connect to PostgreSQL")
-		viper.BindPFlag(config.KeyPGPort, RootCmd.PersistentFlags().Lookup(pgPortLong))
-		viper.BindEnv(config.KeyPGPort, "PGPORT")
-		viper.SetDefault(config.KeyPGPort, defaultPGPort)
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
 	}
 
 	{
 		const (
-			pgdatabaseLong    = "database"
-			pgdatabaseShort   = "d"
-			pgdatabaseDefault = "postgres"
+			key          = config.KeyPGPort
+			longName     = "port"
+			shortName    = "p"
+			defaultValue = 5432
+			envVar       = "PGPORT"
+			description  = "Hostname to connect to PostgreSQL"
 		)
 
-		RootCmd.PersistentFlags().StringP(pgdatabaseLong, pgdatabaseShort, pgdatabaseDefault, "Database name to connect to")
-		viper.BindPFlag(config.KeyPGDatabase, RootCmd.PersistentFlags().Lookup(pgdatabaseLong))
-		viper.BindEnv(config.KeyPGDatabase, "PGDATABASE")
-		viper.SetDefault(config.KeyPGDatabase, pgdatabaseDefault)
+		RootCmd.PersistentFlags().UintP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
 	}
 
 	{
 		const (
-			defaultPGUsername = "postgres"
-			pgUsernameLong    = "username"
-			pgUsernameShort   = "U"
+			key          = config.KeyPGDatabase
+			longName     = "database"
+			shortName    = "d"
+			defaultValue = "postgres"
+			envVar       = "PGDATABASE"
+			description  = "Database name to connect to"
 		)
 
-		RootCmd.PersistentFlags().StringP(pgUsernameLong, pgUsernameShort, defaultPGUsername, "Username to connect to PostgreSQL")
-		viper.BindPFlag(config.KeyPGUser, RootCmd.PersistentFlags().Lookup(pgUsernameLong))
-		viper.BindEnv(config.KeyPGUser, "PGUSER")
-		viper.SetDefault(config.KeyPGUser, defaultPGUsername)
-	}
-
-	{
-		const defaultPGPassword = ""
-		viper.BindEnv(config.KeyPGPassword, "PGPASSWORD")
-		viper.SetDefault(config.KeyPGPassword, defaultPGPassword)
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, defaultValue)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
 	}
 
 	{
 		const (
-			disableAgentLong    = "disable-agent"
-			disableAgentShort   = "A"
-			defaultDisableAgent = false
+			key          = config.KeyPGUser
+			longName     = "username"
+			shortName    = "U"
+			defaultValue = "postgres"
+			envVar       = "PGUSER"
+			description  = "Username to connect to PostgreSQL"
 		)
 
-		RootCmd.PersistentFlags().BoolP(disableAgentLong, disableAgentShort, defaultDisableAgent, "Disable the gops(1) agent interface")
-		viper.BindPFlag(config.KeyDisableAgent, RootCmd.PersistentFlags().Lookup(disableAgentLong))
-		viper.SetDefault(config.KeyDisableAgent, defaultDisableAgent)
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyPGPassword
+			defaultValue = ""
+			envVar       = "PGPASSWORD"
+		)
+
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyGoogleAgentEnable
+			longName     = "enable-agent"
+			shortName    = ""
+			defaultValue = true
+			description  = "Enable the gops(1) agent interface"
+		)
+
+		RootCmd.PersistentFlags().BoolP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusAPIToken
+			longName     = "circonus-api-key"
+			shortName    = "a"
+			defaultValue = ""
+			envVar       = "CIRCONUS_API_TOKEN"
+			description  = "Circonus API token"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key       = config.KeyCirconusAPIURL
+			longName  = "circonus-api-url"
+			shortName = ""
+			// FIXME(seanc@): This should be an exported constant from circonus-gometrics
+			defaultValue = "https://api.circonus.com/v2"
+			envVar       = "CIRCONUS_API_URL"
+			description  = "Circonus API URL"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusBrokerID
+			longName     = "circonus-broker-id"
+			shortName    = ""
+			defaultValue = ""
+			description  = "Circonus Broker ID"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusBrokerMaxResponseTime
+			longName     = "circonus-broker-max-response-time"
+			shortName    = ""
+			defaultValue = "500ms"
+			description  = "Circonus Broker Max Response Time"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusBrokerSelectTag
+			longName     = "circonus-broker-select-tag"
+			shortName    = ""
+			defaultValue = ""
+			description  = "Circonus Broker Select Tag"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusCheckDisplayName
+			longName     = "circonus-check-display-name"
+			shortName    = ""
+			defaultValue = buildtime.PROGNAME
+			description  = "Circonus Check Display Name"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusCheckForceMetricActivation
+			longName     = "circonus-check-force-metric-activation"
+			shortName    = ""
+			defaultValue = "false"
+			description  = "Circonus Check Force Metric Activation"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusCheckID
+			longName     = "circonus-check-id"
+			shortName    = ""
+			defaultValue = ""
+			envVar       = "CIRCONUS_CHECK_ID"
+			description  = "Circonus Check ID"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key         = config.KeyCirconusCheckInstanceID
+			longName    = "circonus-check-instance-id"
+			shortName   = ""
+			description = "Circonus Check Instance ID"
+		)
+		var defaultValue string
+		if hostname, err := os.Hostname(); err == nil {
+			defaultValue = fmt.Sprintf("%s:%s", hostname, buildtime.PROGNAME)
+		}
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusCheckMaxURLAge
+			longName     = "circonus-check-max-url-age"
+			shortName    = ""
+			defaultValue = "5m"
+			description  = "Circonus Check Max URL Age"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key         = config.KeyCirconusCheckSearchTag
+			longName    = "circonus-check-search-tag"
+			shortName   = ""
+			description = "Circonus Check Search Tag"
+		)
+		var defaultValue string = `app:` + buildtime.PROGNAME
+		if hostname, err := os.Hostname(); err == nil {
+			defaultValue = fmt.Sprintf("%s, host:%s", defaultValue, hostname)
+		}
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusCheckSecret
+			longName     = "circonus-check-secret"
+			shortName    = ""
+			defaultValue = ""
+			description  = "Circonus Check Secret"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusCheckSubmissionURL
+			longName     = "circonus-submission-url"
+			shortName    = ""
+			defaultValue = ""
+			envVar       = "CIRCONUS_SUBMISSION_URL"
+			description  = "Circonus Check Submission URL"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.BindEnv(key, envVar)
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusCheckTags
+			longName     = "circonus-check-tags"
+			shortName    = ""
+			defaultValue = `app:` + buildtime.PROGNAME
+			description  = "Circonus Check Tags"
+		)
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key         = config.KeyCirconusCheckTargetHost
+			longName    = "circonus-check-target-host"
+			shortName   = ""
+			description = "Circonus Check Target Host"
+		)
+		var defaultValue string
+		if hostname, err := os.Hostname(); err == nil {
+			defaultValue = hostname
+		}
+
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyCirconusEnabled
+			longName     = "circonus-enable-metrics"
+			shortName    = ""
+			defaultValue = true
+			description  = "Enable Circonus metrics"
+		)
+
+		RootCmd.PersistentFlags().BoolP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
 	}
 }
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
+	viper.SetConfigName(buildtime.PROGNAME)
+
 	if cfgFile != "" {
 		// Use config file from the flag.
 		viper.SetConfigFile(cfgFile)
 	} else {
-		// Find home directory.
-		home, err := homedir.Dir()
+		d, err := os.Getwd()
 		if err != nil {
-			fmt.Println(home)
-			os.Exit(1)
+			log.Warn().Err(err).Msg("unable to find the current working directory")
+		} else {
+			viper.AddConfigPath(d)
 		}
-
-		// Search config in home directory with name ".cobra" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigName("." + buildtime.PROGNAME)
 	}
 
 	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		log.Debug().Msgf("Using config file: %s", viper.ConfigFileUsed())
+	if err := viper.ReadInConfig(); err != nil {
+		log.Warn().Err(err).Msg("Unable to read config file")
+	} else {
+		log.Debug().Str("config-file", viper.ConfigFileUsed()).Msg("")
 	}
 }

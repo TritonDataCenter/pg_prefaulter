@@ -60,3 +60,7 @@
 [[constraint]]
   branch = "master"
   name = "github.com/jackc/pgx"
+
+[[constraint]]
+  name = "github.com/circonus-labs/circonus-gometrics"
+  version = "1.0.0"
