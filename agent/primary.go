@@ -28,7 +28,7 @@ func (a *Agent) runPrimary() (loopImmediately bool) {
 		return false
 	}
 
-	err = a.queryLastLog()
+	_, err = a.queryLastLog()
 	if err != nil {
 		log.Error().Err(err).Msg("unable to query last WAL lag")
 		return false

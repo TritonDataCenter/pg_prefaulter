@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx"
 	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/joyent/pg_prefaulter/config"
+	"github.com/joyent/pg_prefaulter/lsn"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
@@ -51,6 +52,9 @@ type Agent struct {
 
 	walLock    sync.RWMutex
 	lastWALLog string
+	// timelineID is the timeline ID from the last queryLastLog()
+	// operation. timelineID is protected by walLock.
+	timelineID lsn.TimelineID
 }
 
 func New(cfg config.Config) (a *Agent, err error) {

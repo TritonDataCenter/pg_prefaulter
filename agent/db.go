@@ -37,6 +37,7 @@ const (
 	metricsDBPeerSyncState       = "peer-sync-state"
 	metricsDBSenderState         = "sender-state"
 	metricsDBState               = "db-state"
+	metricsDBTimelineID          = "timeline-id"
 	metricsDBWALCount            = "num-wal-files"
 	metricsDBVersionPG           = "version-pg"
 	metricsVersionSelfCommit     = "version-self-commit"
@@ -44,7 +45,9 @@ const (
 	metricsVersionSelfVersion    = "version-self-version"
 )
 
-type _DBConnectionState int
+type (
+	_DBConnectionState int
+)
 
 const (
 	_DBConnectionStateUnknown _DBConnectionState = iota
@@ -194,23 +197,24 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (uint64, error) {
 }
 
 // queryLastLog queries to see if the WAL log for a given server has changed.
-func (a *Agent) queryLastLog() error {
-	sql := "SELECT redo_wal_file FROM pg_control_checkpoint()"
+func (a *Agent) queryLastLog() (lsn.TimelineID, error) {
+	sql := "SELECT timeline_id, redo_wal_file FROM pg_control_checkpoint()"
 
 	rows, err := a.pool.QueryEx(a.shutdownCtx, sql, nil)
 	if err != nil {
-		return errors.Wrapf(err, "unable to query last WAL log")
+		return 0, errors.Wrapf(err, "unable to query last WAL log")
 	}
 	defer rows.Close()
 
 	var numWALFiles uint64
 	defer func() { a.metrics.Add(metricsDBWALCount, numWALFiles) }()
 
+	var timelineID lsn.TimelineID
 	var walFile string
 	for rows.Next() {
-		err = rows.Scan(&walFile)
+		err = rows.Scan(&timelineID, &walFile)
 		if err != nil {
-			return errors.Wrap(err, "unable to scan WAL file")
+			return 0, errors.Wrap(err, "unable to scan WAL file")
 		}
 
 		a.walLock.Lock()
@@ -219,13 +223,15 @@ func (a *Agent) queryLastLog() error {
 			numWALFiles++
 		}
 		a.lastWALLog = walFile
+		a.timelineID = timelineID
 	}
 
 	if rows.Err() != nil {
-		return errors.Wrap(err, "unable to process WAL lag")
+		return 0, errors.Wrap(err, "unable to process WAL lag")
 	}
 
-	return nil
+	a.metrics.Add(metricsDBTimelineID, uint64(timelineID))
+	return timelineID, nil
 }
 
 type LSNQuery int
