@@ -30,19 +30,28 @@ const (
 	metricsDBLagDurabilityBytes  = "durability-lag"
 	metricsDBLagFlush            = "flush"
 	metricsDBLagFlushBytes       = "flush-lag"
-	metricsDBLastTransaction     = "last-transaction_ms"
-	metricsDBLastTransactionAge  = "last-transaction-age_ms"
 	metricsDBLagVisibility       = "visibility"
 	metricsDBLagVisibilityBytes  = "visibility-lag"
+	metricsDBLastTransaction     = "last-transaction_ms"
+	metricsDBLastTransactionAge  = "last-transaction-age_ms"
 	metricsDBPeerSyncState       = "peer-sync-state"
 	metricsDBSenderState         = "sender-state"
 	metricsDBState               = "db-state"
 	metricsDBTimelineID          = "timeline-id"
-	metricsDBWALCount            = "num-wal-files"
 	metricsDBVersionPG           = "version-pg"
+	metricsDBWALCount            = "num-wal-files"
+	metricsSysCloseCount         = "sys-close-count"
+	metricsSysOpenCount          = "sys-open-count"
+	metricsSysPreadCount         = "sys-pread-count"
+	metricsSysPreadLatency       = "sys-pread-ms"
 	metricsVersionSelfCommit     = "version-self-commit"
 	metricsVersionSelfDate       = "version-self-date"
 	metricsVersionSelfVersion    = "version-self-version"
+	metricsXLogDumpErrorCount    = "xlogdump-error-count"
+	metricsXLogDumpLen           = "xlogdump-out-len"
+	metricsXLogDumpLinesMatched  = "xlogdump-lines-matched"
+	metricsXLogDumpLinesScanned  = "xlogdump-lines-scanned"
+	metricsXLogPrefaulted        = "xlog-prefaulted-count"
 )
 
 type (
@@ -223,6 +232,12 @@ func (a *Agent) queryLastLog() (lsn.TimelineID, error) {
 			numWALFiles++
 		}
 		a.lastWALLog = walFile
+
+		// If the timeline changed, purge the walCache assuming we're going to need
+		// to prefault in new data.
+		if a.timelineID != timelineID {
+			a.walCache.Purge()
+		}
 		a.timelineID = timelineID
 	}
 
@@ -230,7 +245,7 @@ func (a *Agent) queryLastLog() (lsn.TimelineID, error) {
 		return 0, errors.Wrap(err, "unable to process WAL lag")
 	}
 
-	a.metrics.Add(metricsDBTimelineID, uint64(timelineID))
+	a.metrics.Set(metricsDBTimelineID, uint64(timelineID))
 	return timelineID, nil
 }
 

@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cmd
+package agent
 
 import (
 	"fmt"
@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/joyent/pg_prefaulter/config"
+	"github.com/joyent/pg_prefaulter/lsn"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
@@ -38,7 +39,7 @@ type _RelationFile struct {
 	Block      string
 
 	// memoized values
-	lock     *sync.Mutex
+	lock     sync.Mutex
 	filename string
 	pageNum  int64
 }
@@ -95,8 +96,8 @@ func (rf *_RelationFile) populateSelf() error {
 		return errors.Wrapf(err, "unable to parse block number")
 	}
 
-	rf.pageNum = int64(blockNumber) % int64(maxSegmentSize/walBlockSize)
-	fileNum := int64(blockNumber) / int64(maxSegmentSize/walBlockSize)
+	rf.pageNum = int64(blockNumber) % int64(lsn.MaxSegmentSize/lsn.WALPageSize)
+	fileNum := int64(blockNumber) / int64(lsn.MaxSegmentSize/lsn.WALPageSize)
 	filename := rf.Relation
 	if fileNum > 0 {
 		// It's easier to abuse Relation here than to support a parallel refilno

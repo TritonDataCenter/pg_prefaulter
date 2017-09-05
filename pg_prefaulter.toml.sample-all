@@ -17,7 +17,7 @@
 
 [postgresql.xlog]
 #mode = "pg"
-#dump-path = "/usr/local/bin/pg_xlogdump"x
+#pg_xlogdump-path = "/usr/local/bin/pg_xlogdump"
 
 [circonus]
 #debug = false

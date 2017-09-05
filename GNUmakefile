@@ -96,6 +96,7 @@ startdb-primary:: ## 30 Start the primary database
 .PHONY: startdb-follower
 startdb-follower:: ## 40 Start the follower database
 	2>&1 \
+	nice -n 20 \
 	$(POSTGRES) \
 		-D "$(PGDATA_FOLLOWER)" \
 		-p "$(PGFOLLOWPORT)" \
@@ -150,7 +151,7 @@ controldata:: ## 70 Display pg_controldata(1) of the primary
 
 .PHONY: gendata
 gendata:: ## 50 Generate data in the primary
-	2>&1 PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" test -c 'INSERT INTO garbage SELECT s, md5(random()::text) FROM generate_series(1,1000000) s' | tee -a test.log
+	2>&1 PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" PGOPTIONS="-c synchronous_commit=off" "$(PSQL)" test -c 'INSERT INTO garbage SELECT s, md5(random()::text) FROM generate_series(1,1000000) s' | tee -a test.log
 
 .PHONY: psql
 psql:: psql-primary ## 70 Open a psql(1) shell to the primary

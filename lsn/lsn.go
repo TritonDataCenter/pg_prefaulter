@@ -22,12 +22,25 @@ const (
 	// Value representing an invalid LSN (used in error conditions)
 	InvalidLSN = LSN(math.MaxUint64)
 
+	// WALPageSize == PostgreSQL's Page Size.  Page Size == BLKSZ
 	// WALPageSize defaults to 8KB
+	//
+	// TODO(seanc@): pull this data from `SHOW wal_block_size`.
 	WALPageSize = 8 * units.KiB
 
-	// WALSegmentSize defaults to 16MB
-	WALSegmentSize              = 16 * units.MiB
-	WALSegmentsPerXLogId uint64 = 0x100000000 / uint64(WALSegmentSize)
+	// WALFileSize == PostgreSQL WAL File Size.
+	// WALFileSize defaults to 16MB
+	//
+	// TODO(seanc@): pull this value from `SHOW wal_segment_size`
+	WALFileSize = 16 * units.MiB
+
+	// MaxSegmentSize is the max size of a single file in a relation.
+	//
+	// TODO(seanc@): pull this value from pg_controldata(1)'s "Blocks per segment
+	// of large relation" and multiply it by WALBlockSize
+	MaxSegmentSize = 1 * units.GiB
+
+	WALFilesPerSegment uint64 = 0x100000000 / uint64(WALFileSize)
 )
 
 // New creates a new LSN from a segment ID and offset
@@ -67,7 +80,7 @@ func (lsn LSN) ByteOffset() Offset {
 
 // Segment returns the Segment number of the LSN.
 func (lsn LSN) SegmentNumber() Segment {
-	return Segment(uint64(lsn) / uint64(WALSegmentSize))
+	return Segment(uint64(lsn) / uint64(WALFileSize))
 }
 
 // String returns the string representation of an LSN.
@@ -93,6 +106,6 @@ func (lsn LSN) WALFileName(timelineID ...TimelineID) string {
 	}
 
 	return fmt.Sprintf("%08X%08X%08X", tid,
-		uint64(lsn.SegmentNumber())/WALSegmentsPerXLogId,
-		uint64(lsn.SegmentNumber())%WALSegmentsPerXLogId)
+		uint64(lsn.SegmentNumber())/WALFilesPerSegment,
+		uint64(lsn.SegmentNumber())%WALFilesPerSegment)
 }

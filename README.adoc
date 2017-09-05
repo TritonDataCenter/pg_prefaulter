@@ -23,7 +23,7 @@ $ pg_prefaulter run -h                                  // <6>
 <6> ``pg_prefaulter``'s ``run``-specific options
 
 NOTE: `pg_prefaulter` exposes itself as a https://github.com/google/gops[`gops`
-agent].
+client].
 
 [[config]]
 == Configuration Files

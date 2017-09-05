@@ -13,11 +13,11 @@ func TestConstants(t *testing.T) {
 		t.Fatalf("WALPageSize diff: (-got +want)\n%s", diff)
 	}
 
-	if diff := pretty.Compare(lsn.WALSegmentSize, 16777216); diff != "" {
+	if diff := pretty.Compare(lsn.WALFileSize, 16777216); diff != "" {
 		t.Fatalf("WALSegmentSize diff: (-got +want)\n%s", diff)
 	}
 
-	if diff := pretty.Compare(lsn.WALSegmentsPerXLogId, 256); diff != "" {
+	if diff := pretty.Compare(lsn.WALFilesPerSegment, 256); diff != "" {
 		t.Fatalf("WALSegmentsPerXLogId diff: (-got +want)\n%s", diff)
 	}
 }

@@ -82,7 +82,7 @@ already loaded into the OS'es filesystem cache.
 				return
 			}
 
-			const gopsAgentEndpoint = "localhost:5431"
+			const gopsAgentEndpoint = "127.0.0.1:5431"
 
 			options := &agent.Options{
 				Addr:              gopsAgentEndpoint,
