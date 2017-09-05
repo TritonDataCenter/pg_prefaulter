@@ -10,7 +10,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-type LSN uint64
+type (
+	LSN     uint64
+	Segment uint32
+	Offset  uint32
+
+	TimelineID uint32
+)
 
 const (
 	// Value representing an invalid LSN (used in error conditions)
@@ -23,6 +29,11 @@ const (
 	WALSegmentSize              = 16 * units.MiB
 	WALSegmentsPerXLogId uint64 = 0x100000000 / uint64(WALSegmentSize)
 )
+
+// New creates a new LSN from a segment ID and offset
+func New(segNo Segment, off Offset) LSN {
+	return LSN(uint64(segNo)<<32 | uint64(off))
+}
 
 // Parse returns a parsed LSN
 func Parse(in string) (LSN, error) {
@@ -41,36 +52,37 @@ func Parse(in string) (LSN, error) {
 		return InvalidLSN, errors.Wrap(err, "unable to decode the segment ID")
 	}
 
-	return LSN(uint64(id)<<32 | offset), nil
+	return New(Segment(id), Offset(offset)), nil
 }
 
 // ID returns the numeric ID of the WAL.
-func (lsn LSN) ID() uint32 {
-	return uint32(lsn >> 32)
+func (lsn LSN) ID() Segment {
+	return Segment(uint32(lsn >> 32))
 }
 
 // Offset returns the byte offset inside of a WAL segment.
-func (lsn LSN) Offset() uint32 {
-	return uint32(lsn)
+func (lsn LSN) ByteOffset() Offset {
+	return Offset(lsn)
 }
 
 // Segment returns the Segment number of the LSN.
-func (lsn LSN) Segment() uint64 {
-	return uint64(lsn) / uint64(WALSegmentSize)
+func (lsn LSN) SegmentNumber() Segment {
+	return Segment(uint64(lsn) / uint64(WALSegmentSize))
 }
 
 // String returns the string representation of an LSN.
 func (lsn LSN) String() string {
-	var id, offset uint32
-	id = uint32(lsn >> 32)
-	offset = uint32(lsn)
-	return fmt.Sprintf("%X/%X", id, offset)
+	var segNo Segment
+	var off Offset
+	segNo = Segment(lsn >> 32)
+	off = Offset(lsn)
+	return fmt.Sprintf("%X/%X", segNo, off)
 }
 
 // WALFileName returns the name of a WAL's filename.  The timeline number is
 // optional.  If the timeline is not specified, default to a timelineID of 1.
-func (lsn LSN) WALFileName(timelineID ...uint32) string {
-	var tid uint32
+func (lsn LSN) WALFileName(timelineID ...TimelineID) string {
+	var tid TimelineID
 	switch len(timelineID) {
 	case 0:
 		tid = 1
@@ -81,6 +93,6 @@ func (lsn LSN) WALFileName(timelineID ...uint32) string {
 	}
 
 	return fmt.Sprintf("%08X%08X%08X", tid,
-		lsn.Segment()/WALSegmentsPerXLogId,
-		lsn.Segment()%WALSegmentsPerXLogId)
+		uint64(lsn.SegmentNumber())/WALSegmentsPerXLogId,
+		uint64(lsn.SegmentNumber())%WALSegmentsPerXLogId)
 }

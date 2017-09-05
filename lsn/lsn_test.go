@@ -27,7 +27,7 @@ func TestType(t *testing.T) {
 		in       string
 		out      string
 		num      uint64
-		timeline uint32
+		timeline lsn.TimelineID
 		filename string
 		id       uint32
 		offset   uint32
@@ -91,11 +91,11 @@ func TestType(t *testing.T) {
 				st.Fatalf("%d: ID diff: (-got +want)\n%s", n, diff)
 			}
 
-			if diff := pretty.Compare(test.offset, l.Offset()); diff != "" {
+			if diff := pretty.Compare(test.offset, l.ByteOffset()); diff != "" {
 				st.Fatalf("%d: Offset diff: (-got +want)\n%s", n, diff)
 			}
 
-			if diff := pretty.Compare(test.segment, l.Segment()); diff != "" {
+			if diff := pretty.Compare(test.segment, l.SegmentNumber()); diff != "" {
 				st.Fatalf("%d: Segment diff: (-got +want)\n%s", n, diff)
 			}
 
