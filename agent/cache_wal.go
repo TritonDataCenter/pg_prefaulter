@@ -1,3 +1,16 @@
+// Copyright © 2017 Joyent, Inc.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package agent
 
 import (
@@ -7,6 +20,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"time"
 
 	"github.com/bluele/gcache"
 	"github.com/joyent/pg_prefaulter/config"
@@ -31,6 +45,29 @@ var xlogdumpRE = regexp.MustCompile(`s/d/r:([\d]+)/([\d]+)/([\d]+) (?:tid |blk/o
 var (
 	xlogRE *regexp.Regexp
 )
+
+func (a *Agent) initWALCache(cfg config.Config) error {
+	// Deliberately use a scan-intolerant cache because the inputs are going to be
+	// ordered.  When the cache is queried, return a faux result and actually
+	// perform the real work in a background goroutine.
+	a.walCache = gcache.New(2 * int(a.walReadAhead)).
+		LRU().
+		LoaderFunc(func(key interface{}) (interface{}, error) {
+			defer func(start time.Time) {
+				a.metrics.RecordValue(metricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
+			}(time.Now())
+
+			if err := a.prefaultWALFile(key.(string)); err != nil {
+				return nil, errors.Wrapf(err, "unable to prefault WAL file %q", key.(string))
+			}
+
+			a.metrics.Increment(metricsWALFaultCount)
+			return struct{}{}, nil
+		}).
+		Build()
+
+	return nil
+}
 
 // prefaultWALFile shells out to pg_xlogdump(1) and reads its input.  The input
 // from pg_xlogdump(1) is then turned into IO requests that are picked up and
@@ -70,7 +107,7 @@ func (a *Agent) prefaultWALFile(walFile string) error {
 			linesMatched++
 		}
 		for _, matches := range submatches {
-			_, err := a.ioReqCache.GetIFPresent(_RelationFile{
+			_, err := a.ioReqCache.GetIFPresent(_RelationFileKey{
 				Tablespace: string(matches[1]),
 				Database:   string(matches[2]),
 				Relation:   string(matches[3]),

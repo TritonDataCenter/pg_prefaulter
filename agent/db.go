@@ -21,6 +21,7 @@ import (
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/joyent/pg_prefaulter/lsn"
 	"github.com/pkg/errors"
+	log "github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
 
@@ -126,6 +127,27 @@ func (a *Agent) dbState() (_DBState, error) {
 	default:
 		panic("what is logic?")
 	}
+}
+
+func (a *Agent) initDBPool(cfg config.Config) (err error) {
+	poolConfig := cfg.DBPool
+	poolConfig.AfterConnect = func(conn *pgx.Conn) error {
+		var version string
+		sql := `SELECT VERSION()`
+		if err := conn.QueryRowEx(a.shutdownCtx, sql, nil).Scan(&version); err != nil {
+			return errors.Wrap(err, "unable to query DB version")
+		}
+		log.Debug().Uint32("backend-pid", conn.PID()).Str("version", version).Msg("established DB connection")
+		a.metrics.SetTextValue(metricsDBVersionPG, version)
+
+		return nil
+	}
+
+	if a.pool, err = pgx.NewConnPool(poolConfig); err != nil {
+		return errors.Wrap(err, "unable to create a new DB connection pool")
+	}
+
+	return nil
 }
 
 type _QueryLag int
