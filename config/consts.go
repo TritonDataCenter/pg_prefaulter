@@ -16,6 +16,7 @@ const (
 	KeyCirconusCheckSubmissionURL         = "circonus.check.submission_url"
 	KeyCirconusCheckTags                  = "circonus.check.tags"
 	KeyCirconusCheckTargetHost            = "circonus.check.target_host"
+	KeyCirconusDebug                      = "circonus.debug"
 	KeyCirconusEnabled                    = "circonus.enabled"
 
 	KeyGoogleAgentEnable = "google.agent.enabled"

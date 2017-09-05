@@ -473,6 +473,20 @@ func init() {
 
 	{
 		const (
+			key          = config.KeyCirconusDebug
+			longName     = "circonus-debug"
+			shortName    = ""
+			defaultValue = false
+			description  = "Enable Circonus Debug"
+		)
+
+		RootCmd.PersistentFlags().BoolP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
 			key          = config.KeyCirconusEnabled
 			longName     = "circonus-enable-metrics"
 			shortName    = ""

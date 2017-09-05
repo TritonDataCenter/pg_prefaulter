@@ -20,6 +20,7 @@
 #dump-path = "/usr/local/bin/pg_xlogdump"x
 
 [circonus]
+#debug = false
 #enabled = true
 
 [circonus.api]

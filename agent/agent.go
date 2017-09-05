@@ -109,7 +109,6 @@ RETRY:
 
 		if !loopImmediately {
 			d := viper.GetDuration(config.KeyPGPollInterval)
-			log.Debug().Dur("sleep duration", d).Msg("sleeping before next poll")
 			time.Sleep(d)
 		}
 
@@ -166,8 +165,6 @@ func (a *Agent) isShuttingDown() bool {
 // true, we're requesting an immediately loop without any pause between
 // iterations.
 func (a *Agent) runFollower() (loopImmediately bool) {
-	log.Debug().Msg("follower")
-
 	_, err := a.queryLag(_QueryLagFollower)
 	if err != nil {
 		log.Error().Err(err).Msg("unable to query follower lag")

@@ -30,7 +30,7 @@ func NewDefault() Config {
 			// cgmlog := log.Logger.With().Str("module", "circonus").Logger()
 			// cmc.Log = cgmlog
 		}
-		cmc.Debug = IsDebug()
+		cmc.Debug = viper.GetBool(KeyCirconusDebug)
 		cmc.ResetCounters = "false"
 		cmc.ResetGauges = "true"
 		cmc.ResetHistograms = "true"
@@ -79,8 +79,9 @@ func NewDefault() Config {
 
 	return Config{
 		DBPool: pgx.ConnPoolConfig{
-			AcquireTimeout: 0,
 			MaxConnections: 5,
+			AfterConnect:   nil,
+			AcquireTimeout: 0,
 
 			ConnConfig: pgx.ConnConfig{
 				Database: viper.GetString(KeyPGDatabase),
