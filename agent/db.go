@@ -8,14 +8,8 @@ import (
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/joyent/pg_prefaulter/lsn"
 	"github.com/pkg/errors"
-	log "github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
-
-func connInit(conn *pgx.Conn) error {
-	log.Debug().Msg("established DB connection")
-	return nil
-}
 
 const (
 	metricsDBConnectionStateName = "connected"
@@ -31,6 +25,10 @@ const (
 	metricsDBSenderState         = "sender-state"
 	metricsDBState               = "db-state"
 	metricsDBWALCount            = "num-wal-files"
+	metricsDBVersionPG           = "version-pg"
+	metricsVersionSelfCommit     = "version-self-commit"
+	metricsVersionSelfDate       = "version-self-date"
+	metricsVersionSelfVersion    = "version-self-version"
 )
 
 type _DBConnectionState int

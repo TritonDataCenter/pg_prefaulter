@@ -47,20 +47,35 @@ func New(cfg config.Config) (a *Agent, err error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create a stats agent")
 	}
-
-	{
-		poolConfig := cfg.DBPool
-		poolConfig.AfterConnect = connInit
-		if a.pool, err = pgx.NewConnPool(poolConfig); err != nil {
-			return nil, errors.Wrap(err, "unable to create a new DB connection pool")
-		}
-	}
+	// Emit a handful of constants to reflect what the state of this process is.
+	a.metrics.SetTextValue(metricsVersionSelfCommit, buildtime.COMMIT)
+	a.metrics.SetTextValue(metricsVersionSelfDate, buildtime.DATE)
+	a.metrics.SetTextValue(metricsVersionSelfVersion, buildtime.VERSION)
 
 	// Handle shutdown via a.shutdownCtx
 	a.signalCh = make(chan os.Signal, 1)
 	signal.Notify(a.signalCh, os.Interrupt, unix.SIGTERM, unix.SIGHUP, unix.SIGPIPE, unix.SIGINFO)
 
 	a.shutdownCtx, a.shutdown = context.WithCancel(context.Background())
+
+	{
+		poolConfig := cfg.DBPool
+		poolConfig.AfterConnect = func(conn *pgx.Conn) error {
+			var version string
+			sql := `SELECT VERSION()`
+			if err := conn.QueryRowEx(a.shutdownCtx, sql, nil).Scan(&version); err != nil {
+				return errors.Wrap(err, "unable to query DB version")
+			}
+			log.Debug().Uint32("backend-pid", conn.PID()).Str("version", version).Msg("established DB connection")
+			a.metrics.SetTextValue(metricsDBVersionPG, version)
+
+			return nil
+		}
+
+		if a.pool, err = pgx.NewConnPool(poolConfig); err != nil {
+			return nil, errors.Wrap(err, "unable to create a new DB connection pool")
+		}
+	}
 
 	return a, nil
 }
