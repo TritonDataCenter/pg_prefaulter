@@ -168,7 +168,6 @@ func New(cfg config.Config) (a *Agent, err error) {
 					log.Warn().Err(err).Msgf("unable to open relation file: %v", rf)
 					return nil, nil, err
 				}
-				a.metrics.Increment(metricsSysOpenCount)
 
 				// Return a valid value, unlocked.  gcache provides us with lock
 				// coverage until we return.  Copies of this struct in different threads

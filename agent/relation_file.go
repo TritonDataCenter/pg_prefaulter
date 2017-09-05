@@ -19,6 +19,7 @@ import (
 	"path"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/joyent/pg_prefaulter/lsn"
@@ -52,11 +53,16 @@ func (rf *_RelationFile) Open() (*os.File, error) {
 		return nil, errors.Wrapf(err, "unable to determine filename %+v", rf)
 	}
 
+	start := time.Now()
 	f, err := os.Open(filename)
+	end := time.Now()
+
 	if err != nil {
 		log.Warn().Err(err).Msgf("unable to open relation name %q", filename)
 		return nil, errors.Wrapf(err, "unable to open relation name %q", filename)
 	}
+	a.metrics.RecordValue(metricsSysOpenLatency, float64(end.Sub(start)/time.Millisecond))
+	a.metrics.Increment(metricsSysOpenCount)
 
 	return f, nil
 }
