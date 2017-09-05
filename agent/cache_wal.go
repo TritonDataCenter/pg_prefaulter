@@ -47,21 +47,42 @@ var (
 )
 
 func (a *Agent) initWALCache(cfg config.Config) error {
+	// Create a worker pool of two WAL threads
+	const numWALWorkers = 2
+	walFiles := make(chan string)
+	for walWorker := 0; walWorker < numWALWorkers; walWorker++ {
+		a.walCacheWG.Add(1)
+		go func(threadID int) {
+			log.Debug().Int("wal-worker-thread-id", threadID).Msg("starting WAL worker thread")
+			defer func() {
+				log.Debug().Int("wal-worker-thread-id", threadID).Msg("shutting down WAL worker thread")
+				a.walCacheWG.Done()
+			}()
+
+			for walFile := range walFiles {
+				start := time.Now()
+
+				if err := a.prefaultWALFile(walFile); err != nil {
+					log.Error().Int("wal-worker-thread-id", threadID).Err(err).Str("wal filename", walFile).Msg("unable to prefault WAL file")
+				} else {
+					a.metrics.Increment(metricsWALFaultCount)
+				}
+
+				a.metrics.RecordValue(metricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
+				if a.isShuttingDown() {
+					return
+				}
+			}
+		}(walWorker)
+	}
+
 	// Deliberately use a scan-intolerant cache because the inputs are going to be
 	// ordered.  When the cache is queried, return a faux result and actually
 	// perform the real work in a background goroutine.
 	a.walCache = gcache.New(2 * int(a.walReadAhead)).
 		LRU().
 		LoaderFunc(func(key interface{}) (interface{}, error) {
-			defer func(start time.Time) {
-				a.metrics.RecordValue(metricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
-			}(time.Now())
-
-			if err := a.prefaultWALFile(key.(string)); err != nil {
-				return nil, errors.Wrapf(err, "unable to prefault WAL file %q", key.(string))
-			}
-
-			a.metrics.Increment(metricsWALFaultCount)
+			walFiles <- key.(string)
 			return struct{}{}, nil
 		}).
 		Build()
@@ -107,6 +128,8 @@ func (a *Agent) prefaultWALFile(walFile string) error {
 			linesMatched++
 		}
 		for _, matches := range submatches {
+			// TODO(seanc@): Send the IO requests here to a pool of io cache request
+			// workers instead of fetching through the cache.  I think.
 			_, err := a.ioReqCache.GetIFPresent(_RelationFileKey{
 				Tablespace: string(matches[1]),
 				Database:   string(matches[2]),

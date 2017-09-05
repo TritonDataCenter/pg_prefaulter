@@ -84,7 +84,8 @@ type Agent struct {
 	// b) deduplicate requests (i.e. no thundering-herd for the same WAL file)
 	// c) deliberately intollerant of scans because we know the input is monotonic
 	// d) sized to include only the walReadAhead
-	walCache gcache.Cache
+	walCache   gcache.Cache
+	walCacheWG sync.WaitGroup
 }
 
 func New(cfg config.Config) (a *Agent, err error) {
@@ -130,6 +131,8 @@ func New(cfg config.Config) (a *Agent, err error) {
 		return nil, errors.Wrap(err, "unable to initialize ioReqCache")
 	}
 
+	// Initialize the walCache last because this is the primary driver of work in
+	// the tier of caches (i.e. WAL -> IO -> FD).
 	if err := a.initWALCache(cfg); err != nil {
 		return nil, errors.Wrap(err, "unable to initialize WAL cache")
 	}
@@ -204,6 +207,9 @@ func (a *Agent) Wait() error {
 	select {
 	case <-a.shutdownCtx.Done():
 	}
+
+	// Drain work from the WAL cache before returning
+	a.walCacheWG.Wait()
 
 	return nil
 }

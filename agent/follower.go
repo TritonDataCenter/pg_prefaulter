@@ -76,6 +76,19 @@ func (a *Agent) runFollower() (loopImmediately bool) {
 		}
 	}
 
+	// If we had a single cache miss previously, perform the exact same lookups a
+	// second time, but this time with a blocking call to Get().  We perform this
+	// second loop through the cache in order to limit the amount of activity and
+	// let the dispatched work run to completion before attempting to process
+	// additional WAL files.
+	if loopImmediately {
+		for _, walFile := range walFiles {
+			if _, err := a.walCache.Get(walFile); err != nil {
+				log.Error().Err(err).Msg("unable to perform synchronous Get operation on WAL file cache")
+			}
+		}
+	}
+
 	// log.Debug().Bool("loop", loopImmediately).Str("current wal-file", replayLSN.WALFileName(timelineID)).Strs("wal files", walFiles).Msg("")
 
 	return loopImmediately
