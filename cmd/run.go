@@ -26,12 +26,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Process-wide stats, all managed as atomic integers
-var (
-	walBytesRead  uint64 // Number of bytes pread(2)
-	walReadErrors uint64 // Number of pread(2) errors
-)
-
 // runCmd represents the run command
 var runCmd = &cobra.Command{
 	Use:   "run",

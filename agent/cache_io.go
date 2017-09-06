@@ -14,10 +14,7 @@
 package agent
 
 import (
-	"fmt"
-	"path"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/bluele/gcache"
@@ -25,7 +22,6 @@ import (
 	"github.com/joyent/pg_prefaulter/lsn"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
-	"github.com/spf13/viper"
 )
 
 // _IOCacheKey contains the forward lookup information for a given relation
@@ -38,19 +34,6 @@ type _IOCacheKey struct {
 	Database   string
 	Relation   string
 	Block      string
-}
-
-// _IOCacheValue contains the forward lookup information for a given relation
-// file.  _IOCacheValue is a
-// [comparable](https://golang.org/ref/spec#Comparison_operators) struct used as
-// a lookup key.  These values are immutable and map 1:1 with the string inputs
-// read from the xlog scanning utility.
-type _IOCacheValue struct {
-	_IOCacheKey
-
-	lock     sync.Mutex
-	filename string
-	pageNum  int64
 }
 
 func (a *Agent) initIOCache(cfg config.Config) error {
@@ -135,55 +118,6 @@ func (ioCacheKey *_IOCacheKey) PageNum() (int64, error) {
 	pageNum := int64(blockNumber) % int64(lsn.MaxSegmentSize/lsn.WALPageSize)
 
 	return pageNum, nil
-}
-
-// Filename returns the filename of a given relation
-func (ioCacheValue *_IOCacheValue) Filename() (string, error) {
-	ioCacheValue.lock.Lock()
-	defer ioCacheValue.lock.Unlock()
-	if ioCacheValue.filename == "" {
-		if err := ioCacheValue.populateSelf(); err != nil {
-			log.Warn().Err(err).Msg("populating self")
-			return "", errors.Wrap(err, "populating self")
-		}
-	}
-
-	return ioCacheValue.filename, nil
-}
-
-// PageNum returns the pagenum of a given relation
-func (ioCacheValue *_IOCacheValue) PageNum() (int64, error) {
-	ioCacheValue.lock.Lock()
-	defer ioCacheValue.lock.Unlock()
-	if ioCacheValue.filename == "" {
-		if err := ioCacheValue.populateSelf(); err != nil {
-			log.Warn().Err(err).Msg("populating self")
-			return -1, errors.Wrap(err, "populating self")
-		}
-	}
-
-	return ioCacheValue.pageNum, nil
-}
-
-func (ioCacheValue *_IOCacheValue) populateSelf() error {
-	blockNumber, err := strconv.ParseUint(ioCacheValue.Block, 10, 64)
-	if err != nil {
-		log.Warn().Err(err).Str("str int", ioCacheValue.Block).Msgf("invalid integer: %+v", ioCacheValue)
-		return errors.Wrapf(err, "unable to parse block number")
-	}
-
-	ioCacheValue.pageNum = int64(blockNumber) % int64(lsn.MaxSegmentSize/lsn.WALPageSize)
-	fileNum := int64(blockNumber) / int64(lsn.MaxSegmentSize/lsn.WALPageSize)
-	filename := ioCacheValue.Relation
-	if fileNum > 0 {
-		// It's easier to abuse Relation here than to support a parallel refilno
-		// struct member
-		filename = fmt.Sprintf("%s.%d", ioCacheValue.Relation, fileNum)
-	}
-
-	ioCacheValue.filename = path.Join(viper.GetString(config.KeyPGData), "base", string(ioCacheValue.Database), string(filename))
-
-	return nil
 }
 
 func (a *Agent) prefaultPage(ioReq _IOCacheKey) error {
