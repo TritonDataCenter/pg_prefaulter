@@ -145,5 +145,48 @@ func (a *Agent) initFileHandleCache(cfg config.Config) error {
 		}).
 		Build()
 
+	log.Debug().
+		Uint32("rlimit-nofile", maxNumOpenFiles).
+		Uint32("filehandle-cache-size", fhCacheSize).
+		Dur("filehandle-cache-ttl", fhCacheTTL).
+		Msg("filehandle cache initialized")
 	return nil
+}
+
+func (a *Agent) fhCacheGetLocked(ioReq _IOCacheKey) (fhCacheValue *_FileHandleCacheValue, exclusiveLock bool, err error) {
+	// FIXME(seanc@): the fdCache.Get(_NewFDCacheKey(...)) pattern here should be
+	// replaced with a strict interface on the fdCache and fdCache shouldn't have
+	// its interface exposed to callers like this.  Instead, a.fdCacheGet() should
+	// be a helper method that does the right thing with all of the type
+	// assertions, etc.  Or: a.fdCacheGetLocked()
+	fhValueRaw, err := a.fileHandleCache.Get(_NewFileHandleCacheKey(ioReq))
+	if err != nil {
+		log.Warn().Err(err).Msgf("unable to open file cache: %+v", ioReq)
+		return nil, false, err
+	}
+
+	fhValue, ok := fhValueRaw.(*_FileHandleCacheValue)
+	if !ok {
+		log.Panic().Msgf("unable to type assert file handle in IO Cache: %+v", fhValueRaw)
+	}
+
+	fhValue.lock.RLock()
+	if fhValue.isOpen == true {
+		return fhValue, false, nil
+	}
+
+	fhValue.lock.RUnlock()
+	fhValue.lock.Lock()
+	// Revalidate lock predicate with exclusive lock held
+	if fhValue.isOpen == false {
+		if _, err := fhValue.Open(); err != nil {
+			fhValue.lock.Unlock()
+			return nil, false, errors.Wrapf(err, "unable to re-open file: %+v", fhValue._FileHandleCacheKey)
+		}
+	}
+
+	// force the caller to deal with an exclusive lock in order to not drop
+	// fhValue.lock.  Busy-looping on this lock attempting to demote the lock
+	// isn't worth the hassle.
+	return fhValue, true, nil
 }
