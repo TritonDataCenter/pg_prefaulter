@@ -11,7 +11,7 @@
   branch = "master"
   name = "github.com/bluele/gcache"
   packages = ["."]
-  revision = "04d92e137110a022a213a7919825272072df2823"
+  revision = "6748215c018ea9d23fd269d499a3553c94d3ddf9"
 
 [[projects]]
   name = "github.com/circonus-labs/circonus-gometrics"
@@ -124,8 +124,8 @@
 [[projects]]
   name = "github.com/rs/zerolog"
   packages = [".","internal/json","log"]
-  revision = "2ed2f2c974489526d10329dae76d0f175684109a"
-  version = "v1.2.2"
+  revision = "3ac71fc58dbd43122668a912b755b0979ba9ce1f"
+  version = "v1.3.0"
 
 [[projects]]
   branch = "master"
@@ -143,7 +143,7 @@
   branch = "master"
   name = "github.com/spf13/cobra"
   packages = ["."]
-  revision = "4de692c1eb1394aff41da8b05fff75bd74c7127c"
+  revision = "b78744579491c1ceeaaa3b40205e56b0591b93a3"
 
 [[projects]]
   branch = "master"
@@ -173,7 +173,7 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "7ddbeae9ae08c6a06a59597f0c9edbc5ff2444ce"
+  revision = "9aade4d3a3b7e6d876cd3823ad20ec45fc035402"
 
 [[projects]]
   branch = "master"

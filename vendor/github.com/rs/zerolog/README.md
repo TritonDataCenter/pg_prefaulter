@@ -8,7 +8,7 @@ Zerolog's API is designed to provide both a great developer experience and stunn
 
 The uber's [zap](https://godoc.org/go.uber.org/zap) library pioneered this approach. Zerolog is taking this concept to the next level with simpler to use API and even better performance.
 
-To keep the code base and the API simple, zerolog focuses on JSON logging only. Pretty logging on the console is made possible using the provided `zerolog.ConsoleWriter`.
+To keep the code base and the API simple, zerolog focuses on JSON logging only. Pretty logging on the console is made possible using the provided (but inefficient) `zerolog.ConsoleWriter`.
 
 ![](pretty.png)
 
@@ -30,6 +30,13 @@ import "github.com/rs/zerolog/log"
 ```
 
 ### A global logger can be use for simple logging
+
+```go
+log.Print("hello world")
+
+// Output: {"level":"debug","time":1494567715,"message":"hello world"}
+```
+
 
 ```go
 log.Info().Msg("hello world")
@@ -154,11 +161,30 @@ log.Logger = log.With().Str("foo", "bar").Logger()
 ### Log Sampling
 
 ```go
-sampled := log.Sample(10)
+sampled := log.Sample(&zerolog.BasicSampler{N: 10})
 sampled.Info().Msg("will be logged every 10 messages")
 
-// Output: {"time":1494567715,"sample":10,"message":"will be logged every 10 messages"}
+// Output: {"time":1494567715,"level":"info","message":"will be logged every 10 messages"}
 ```
+
+More advanced sampling:
+
+```go
+// Will let 5 debug messages per period of 1 second.
+// Over 5 debug message, 1 every 100 debug messages are logged.
+// Other levels are not sampled.
+sampled := log.Sample(zerolog.LevelSampler{
+    DebugSampler: &zerolog.BurstSampler{
+        Burst: 5,
+        Period: 1*time.Second,
+        NextSampler: &zerolog.BasicSampler{N: 100},
+    },
+})
+sampled.Debug().Msg("hello world")
+
+// Output: {"time":1494567715,"level":"debug","message":"hello world"}
+```
+
 
 ### Pass a sub-logger by context
 
@@ -249,7 +275,6 @@ Some settings can be changed and will by applied to all loggers:
 * `zerolog.LevelFieldName`: Can be set to customize level field name.
 * `zerolog.MessageFieldName`: Can be set to customize message field name.
 * `zerolog.ErrorFieldName`: Can be set to customize `Err` field name.
-* `zerolog.SampleFieldName`: Can be set to customize the field name added when sampling is enabled.
 * `zerolog.TimeFieldFormat`: Can be set to customize `Time` field value formatting. If set with an empty string, times are formated as UNIX timestamp.
 	// DurationFieldUnit defines the unit for time.Duration type fields added
 	// using the Dur method.
@@ -275,7 +300,7 @@ Some settings can be changed and will by applied to all loggers:
 * `Dict`: Adds a sub-key/value as a field of the event.
 * `Interface`: Uses reflection to marshal the type.
 
-## Performance
+## Benchmarks
 
 All operations are allocation free (those numbers *include* JSON encoding):
 
@@ -287,7 +312,12 @@ BenchmarkContextFields-8   30000000	    44.9 ns/op	   0 B/op       0 allocs/op
 BenchmarkLogFields-8       10000000	   184 ns/op	   0 B/op       0 allocs/op
 ```
 
-Using Uber's zap [comparison benchmark](https://github.com/uber-go/zap#performance):
+There are a few Go logging benchmarks and comparisons that include zerolog.
+
+- [imkira/go-loggers-bench](https://github.com/imkira/go-loggers-bench)
+- [uber-common/zap](https://github.com/uber-go/zap#performance)
+
+Using Uber's zap comparison benchmark:
 
 Log a message and 10 fields:
 

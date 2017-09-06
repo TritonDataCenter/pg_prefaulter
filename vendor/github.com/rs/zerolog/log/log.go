@@ -27,9 +27,9 @@ func Level(level zerolog.Level) zerolog.Logger {
 	return Logger.Level(level)
 }
 
-// Sample returns a logger that only let one message out of every to pass thru.
-func Sample(every int) zerolog.Logger {
-	return Logger.Sample(every)
+// Sample returns a logger with the s sampler.
+func Sample(s zerolog.Sampler) zerolog.Logger {
+	return Logger.Sample(s)
 }
 
 // Debug starts a new message with debug level.
@@ -84,8 +84,20 @@ func Log() *zerolog.Event {
 	return Logger.Log()
 }
 
+// Print sends a log event using debug level and no extra field.
+// Arguments are handled in the manner of fmt.Print.
+func Print(v ...interface{}) {
+	Logger.Print(v...)
+}
+
+// Printf sends a log event using debug level and no extra field.
+// Arguments are handled in the manner of fmt.Printf.
+func Printf(format string, v ...interface{}) {
+	Logger.Printf(format, v...)
+}
+
 // Ctx returns the Logger associated with the ctx. If no logger
 // is associated, a disabled logger is returned.
-func Ctx(ctx context.Context) zerolog.Logger {
+func Ctx(ctx context.Context) *zerolog.Logger {
 	return zerolog.Ctx(ctx)
 }
