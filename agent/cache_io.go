@@ -14,6 +14,7 @@
 package agent
 
 import (
+	"io"
 	"strconv"
 	"time"
 
@@ -126,7 +127,6 @@ func (a *Agent) prefaultPage(ioReq _IOCacheKey) error {
 		return errors.Wrapf(err, "unable to find the page number: %+v", ioReq)
 	}
 
-	var buf [lsn.WALPageSize]byte
 	fhCacheValue, exclusiveLock, err := a.fhCacheGetLocked(ioReq)
 	switch {
 	case err != nil:
@@ -137,11 +137,16 @@ func (a *Agent) prefaultPage(ioReq _IOCacheKey) error {
 		defer fhCacheValue.lock.RUnlock()
 	}
 
+	var buf [lsn.WALPageSize]byte
 	n, err := fhCacheValue.f.ReadAt(buf[:], pageNum*int64(lsn.WALPageSize))
 	a.metrics.Add(metricsSysPreadBytes, uint64(n))
 	if err != nil {
-		a.metrics.Increment(metricsXLogDumpErrorCount)
-		return errors.Wrap(err, "unable to pread(2)")
+		if err != io.EOF {
+			a.metrics.Increment(metricsXLogDumpErrorCount)
+			return errors.Wrap(err, "unable to pread(2)")
+		}
+
+		return nil
 	}
 
 	return nil

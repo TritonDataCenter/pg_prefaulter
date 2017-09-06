@@ -30,9 +30,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// _FileHandleCacheKey is a comparable forward lookup key.
+// _FileHandleCacheKey is a comparable forward lookup key.  These values almost
+// certainly need to be kept in sync with _IOCacheKey, however the
+// FileHandleCache only needs the segment, not the block number.
 type _FileHandleCacheKey struct {
-	_IOCacheKey
+	Tablespace string
+	Database   string
+	Relation   string
+	Segment    lsn.Segment
 }
 
 // _FileHandleCacheValue is a wrapper value type that includes an RWMutex.
@@ -48,10 +53,21 @@ type _FileHandleCacheValue struct {
 	isOpen bool
 }
 
-func _NewFileHandleCacheKey(ioCacheKey _IOCacheKey) _FileHandleCacheKey {
-	return _FileHandleCacheKey{
-		_IOCacheKey: ioCacheKey,
+func _NewFileHandleCacheKey(ioCacheKey _IOCacheKey) (_FileHandleCacheKey, error) {
+	blockNumber, err := strconv.ParseUint(ioCacheKey.Block, 10, 64)
+	if err != nil {
+		return _FileHandleCacheKey{}, errors.Wrap(err, "unable to parse block number")
 	}
+
+	// FIXME(seanc@): Use the logic in the lsn package
+	segment := lsn.Segment(int64(blockNumber) / int64(lsn.MaxSegmentSize/lsn.WALPageSize))
+
+	return _FileHandleCacheKey{
+		Tablespace: ioCacheKey.Tablespace,
+		Database:   ioCacheKey.Database,
+		Relation:   ioCacheKey.Relation,
+		Segment:    segment,
+	}, nil
 }
 
 // Open calculates the relation filename and returns an open file handle.
@@ -59,14 +75,8 @@ func _NewFileHandleCacheKey(ioCacheKey _IOCacheKey) _FileHandleCacheKey {
 // TODO(seanc@): Change the logic of this method to use the
 // lsn type.
 func (fhCacheKey *_FileHandleCacheKey) Open() (*os.File, error) {
-	blockNumber, err := strconv.ParseUint(fhCacheKey.Block, 10, 64)
-	if err != nil {
-		log.Warn().Err(err).Str("str int", fhCacheKey.Block).Msgf("invalid integer: %+v", fhCacheKey)
-		return nil, errors.Wrapf(err, "unable to parse block number")
-	}
-
 	// FIXME(seanc@): Use the logic in the lsn package
-	fileNum := int64(blockNumber) / int64(lsn.MaxSegmentSize/lsn.WALPageSize)
+	fileNum := int64(fhCacheKey.Segment) / int64(lsn.MaxSegmentSize/lsn.WALPageSize)
 	filename := fhCacheKey.Relation
 	if fileNum > 0 {
 		// It's easier to abuse Relation here than to support a parallel refilno
@@ -78,20 +88,27 @@ func (fhCacheKey *_FileHandleCacheKey) Open() (*os.File, error) {
 
 	f, err := os.Open(filename)
 	if err != nil {
-		log.Warn().Err(err).Msgf("unable to open relation name %q", filename)
 		return nil, errors.Wrapf(err, "unable to open relation name %q", filename)
 	}
 
 	return f, nil
 }
 
+func (fh *_FileHandleCacheValue) Close() {
+	fh.lock.Lock()
+	defer fh.lock.Unlock()
+
+	fh.f.Close()
+	fh.isOpen = false
+}
+
 func (a *Agent) initFileHandleCache(cfg config.Config) error {
-	var numReservedFDs uint32 = 10
+	var numReservedFDs uint32 = 50
 	var procNumFiles unix.Rlimit
 	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &procNumFiles); err != nil {
 		return errors.Wrap(err, "unable to determine rlimits for number of files")
 	}
-	maxNumOpenFiles := uint32(procNumFiles.Cur) - a.walReadAhead
+	maxNumOpenFiles := uint32(procNumFiles.Cur)
 
 	fhCacheSize := maxNumOpenFiles - numReservedFDs
 	fhCacheTTL := 3600 * time.Second
@@ -136,11 +153,7 @@ func (a *Agent) initFileHandleCache(cfg config.Config) error {
 				log.Panic().Msgf("bad, evicting something not a file handle: %+v", fhCacheValue)
 			}
 
-			fhCacheValue.lock.Lock()
-			defer fhCacheValue.lock.Unlock()
-
-			fhCacheValue.f.Close()
-			fhCacheValue.isOpen = false
+			fhCacheValue.Close()
 			a.metrics.Increment(metricsSysCloseCount)
 		}).
 		Build()
@@ -154,15 +167,14 @@ func (a *Agent) initFileHandleCache(cfg config.Config) error {
 }
 
 func (a *Agent) fhCacheGetLocked(ioReq _IOCacheKey) (fhCacheValue *_FileHandleCacheValue, exclusiveLock bool, err error) {
-	// FIXME(seanc@): the fdCache.Get(_NewFDCacheKey(...)) pattern here should be
-	// replaced with a strict interface on the fdCache and fdCache shouldn't have
-	// its interface exposed to callers like this.  Instead, a.fdCacheGet() should
-	// be a helper method that does the right thing with all of the type
-	// assertions, etc.  Or: a.fdCacheGetLocked()
-	fhValueRaw, err := a.fileHandleCache.Get(_NewFileHandleCacheKey(ioReq))
+	fhCacheKey, err := _NewFileHandleCacheKey(ioReq)
 	if err != nil {
-		log.Warn().Err(err).Msgf("unable to open file cache: %+v", ioReq)
-		return nil, false, err
+		return nil, false, errors.Wrap(err, "unable to create a filehandle cache key")
+	}
+
+	fhValueRaw, err := a.fileHandleCache.Get(fhCacheKey)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "unable to open cache file")
 	}
 
 	fhValue, ok := fhValueRaw.(*_FileHandleCacheValue)
