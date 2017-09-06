@@ -47,7 +47,8 @@ var (
 )
 
 func (a *Agent) initWALCache(cfg config.Config) error {
-	// Create a worker pool of two WAL threads
+	// Create a worker pool of two WAL threads.  FIXME(seanc@): make this an agent
+	// tunable.
 	const numWALWorkers = 2
 	walFiles := make(chan string)
 	for walWorker := 0; walWorker < numWALWorkers; walWorker++ {
@@ -69,6 +70,7 @@ func (a *Agent) initWALCache(cfg config.Config) error {
 				}
 
 				a.metrics.RecordValue(metricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
+
 				if a.isShuttingDown() {
 					return
 				}
@@ -131,9 +133,19 @@ func (a *Agent) prefaultWALFile(walFile string) error {
 		if submatches != nil {
 			linesMatched++
 		}
+
 		for _, matches := range submatches {
-			// TODO(seanc@): Send the IO requests here to a pool of io cache request
-			// workers instead of fetching through the cache.  I think.
+			// Send all IOs through the non-blocking cache interface.  Leave it up to
+			// the ARC cache to deal with the influx of go routines which will get
+			// scheduled and rate limited behind the ioCache.  If this ends up
+			// becoming a problem we could throttle the requests into the cache, but I
+			// really hope that's not something we need to do.
+			//
+			// Worst case is we flood the ioCache with requests and then block on the
+			// next WALfile.  Because the max number of pages per WAL file is finite
+			// (16MiB/8KiB == ~2K), at most we should have 2K threads running *
+			// walReadAhead.  That's very survivable for now but can be optimized if
+			// necessary.
 			_, err := a.ioCache.GetIFPresent(_IOCacheKey{
 				Tablespace: string(matches[1]),
 				Database:   string(matches[2]),
@@ -141,7 +153,7 @@ func (a *Agent) prefaultWALFile(walFile string) error {
 				Block:      string(matches[4]),
 			})
 			if err == gcache.KeyNotFoundError {
-				// cache miss
+				// cache miss, an IO has been scheduled in the background.
 			}
 		}
 	}

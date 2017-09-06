@@ -44,7 +44,8 @@ const (
 	metricsSysCloseCount         = "sys-close-count"
 	metricsSysOpenCount          = "sys-open-count"
 	metricsSysOpenLatency        = "sys-open-us"
-	metricsSysPreadCount         = "sys-pread-count"
+	metricsSysPreadBytes         = "sys-pread-bytes"
+	metricsPrefaultCount         = "prefault-count"
 	metricsSysPreadLatency       = "sys-pread-ms"
 	metricsVersionSelfCommit     = "version-self-commit"
 	metricsVersionSelfDate       = "version-self-date"
@@ -75,7 +76,7 @@ func (s _DBConnectionState) String() string {
 	case _DBConnectionStateConnected:
 		return "connected"
 	default:
-		panic(fmt.Sprintf("unknown connection state: %+v", s))
+		panic(fmt.Sprintf("unknown connection state: %d", s))
 	}
 }
 
@@ -96,7 +97,7 @@ func (s _DBState) String() string {
 	case _DBStateFollower:
 		return "follower"
 	default:
-		panic(fmt.Sprintf("unknown state: %+v", s))
+		panic(fmt.Sprintf("unknown state: %d", s))
 	}
 }
 

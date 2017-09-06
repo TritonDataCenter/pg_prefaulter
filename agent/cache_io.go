@@ -14,6 +14,9 @@
 package agent
 
 import (
+	"fmt"
+	"path"
+	"strconv"
 	"sync"
 	"time"
 
@@ -22,6 +25,7 @@ import (
 	"github.com/joyent/pg_prefaulter/lsn"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
+	"github.com/spf13/viper"
 )
 
 // _IOCacheKey contains the forward lookup information for a given relation
@@ -51,90 +55,198 @@ type _IOCacheValue struct {
 
 func (a *Agent) initIOCache(cfg config.Config) error {
 	const (
-		driveOpsPerSec        = 150
-		numVDevs              = 6
-		drivesPerVDev         = 2
-		headsPerDrive         = 4
-		efficiency            = 0.5
-		maxConcurrentIOs      = uint((driveOpsPerSec * numVDevs * drivesPerVDev * headsPerDrive) * efficiency)
-		ioCacheSize      uint = uint(lsn.WALFileSize / lsn.WALPageSize)
-		ioCacheTTL            = 86400 * time.Second
+		driveOpsPerSec    = 150
+		numVDevs          = 6
+		drivesPerVDev     = 2
+		headsPerDrive     = 4
+		efficiency        = 0.5
+		defaultIOCacheTTL = 86400 * time.Second
+
+		maxConcurrentIOs = uint((driveOpsPerSec * numVDevs * drivesPerVDev * headsPerDrive) * efficiency)
+
+		// ioCacheSize is set to cache all operations for ~100 WAL files
+		ioCacheSize uint = 100 * uint(lsn.WALFileSize/lsn.WALPageSize)
 	)
 
+	ioCacheTTL := defaultIOCacheTTL
+
+	// TODO(seanc@): Investigation is required to figure out if maxConcurrentIOs
+	// should be clamped to the max number o pages in a given WAL file *
+	// walReadAhead.  At some point the scheduling of the IOs is going to be more
+	// burdensome than actually doing the IOs, but maybe that will only be a
+	// visible problem with SSDs. ¯\_(ツ)_/¯
 	a.maxConcurrentIOs = maxConcurrentIOs
+
+	ioReqs := make(chan _IOCacheKey)
+	for ioWorker := 0; ioWorker < int(a.maxConcurrentIOs); ioWorker++ {
+		a.ioCacheWG.Add(1)
+		go func(threadID int) {
+			log.Debug().Int("io-worker-thread-id", threadID).Msg("starting IO worker thread")
+			defer func() {
+				log.Debug().Int("io-worker-thread-id", threadID).Msg("shutting down IO worker thread")
+				a.ioCacheWG.Done()
+			}()
+
+			for ioReq := range ioReqs {
+				start := time.Now()
+
+				if err := a.prefaultPage(ioReq); err != nil {
+					log.Warn().Int("io-worker-thread-id", threadID).Err(err).
+						Str("database", ioReq.Database).Str("relation", ioReq.Relation).
+						Str("block", ioReq.Block).Msg("unable to prefault page")
+				} else {
+					a.metrics.Increment(metricsPrefaultCount)
+				}
+
+				a.metrics.RecordValue(metricsSysPreadLatency, float64(time.Now().Sub(start)/time.Millisecond))
+
+				if a.isShuttingDown() {
+					return
+				}
+			}
+		}(ioWorker)
+	}
+	log.Info().Int("io-worker-threads", a.maxConcurrentIOs).Msg("started IO worker threads")
 
 	a.ioCache = gcache.New(int(ioCacheSize)).
 		ARC().
 		LoaderExpireFunc(func(key interface{}) (interface{}, *time.Duration, error) {
-			ioCacheKey, ok := key.(_IOCacheKey)
-			if !ok {
-				log.Panic().Msgf("unable to type assert key in IO Cache: %T %+v", ioCacheKey, ioCacheKey)
+			select {
+			case <-a.shutdownCtx.Done():
+			case ioReqs <- key.(_IOCacheKey):
 			}
 
-			// FIXME(seanc@): the fdCache.Get(_NewFDCacheKey(...)) pattern here should
-			// be replaced with a strict interface on the fdCache and fdCache
-			// shouldn't have its interface exposed to callers like this.  Instead,
-			// a.fdCacheGet() should be a helper method that does the right thing with
-			// all of the type assertions, etc.
-			fdValueRaw, err := a.fileHandleCache.Get(_NewFileHandleCacheKey(ioCacheKey))
-			if err != nil {
-				log.Warn().Err(err).Msgf("unable to open file cache: %+v", ioCacheKey)
-				return struct{}{}, nil, err
-			}
+			return struct{}{}, &ioCacheTTL, nil
 
-			fdValue, ok := fdValueRaw.(*_FileHandleCacheValue)
-			if !ok {
-				log.Panic().Msgf("unable to type assert file handle in IO Cache: %+v", fdValueRaw)
-			}
-
-			fdValue.lock.RLock()
-			if fdValue.isOpen == true {
-				defer fdValue.lock.RUnlock()
-			} else {
-				fdValue.lock.RUnlock()
-				fdValue.lock.Lock()
-				// Revalidate lock predicate with exclusive lock held
-				if fdValue.isOpen == false {
-					if _, err := fdValue.Open(); err != nil {
-						fdValue.lock.Unlock()
-						log.Warn().Err(err).Msgf("unable to re-open file: %+v", ioCacheKey)
-						return struct{}{}, nil, errors.Wrapf(err, "unable to re-open file: %+v", ioCacheKey)
-					}
-				}
-				// Hold onto our exclusive lock until we return.  We could in theory
-				// loop and retry this operation with an RLock held but I'm okay with
-				// making a few readers block in order to simplify the code.
-				defer fdValue.lock.Unlock()
-			}
-
-			var buf [lsn.WALPageSize]byte
-			pageNum, err := ioCacheKey.PageNum()
-			if err != nil {
-				log.Warn().Err(err).Msgf("unable to find the page number: %+v", ioCacheKey)
-				return struct{}{}, nil, errors.Wrapf(err, "unable to find the page number: %+v", ioCacheKey)
-			}
-
-			// FIXME(seanc@): Need to wrap this ReadAt() call in a wait group in
-			// order to prevent IO starvation.
-			start := time.Now()
-			n, err := fdValue.f.ReadAt(buf[:], pageNum*int64(lsn.WALPageSize))
-			end := time.Now()
-
-			a.metrics.RecordValue(metricsSysPreadLatency, float64(end.Sub(start)/time.Millisecond))
-			a.metrics.Increment(metricsSysPreadCount)
-			a.metrics.Add(metricsSysPreadCount, uint64(n))
-			if err != nil {
-				a.metrics.Increment(metricsXLogDumpErrorCount)
-				log.Warn().Err(err).Str("database", ioCacheKey.Database).Str("relation", ioCacheKey.Relation).
-					Str("block", ioCacheKey.Block).Int64("page", pageNum).Int("n", n).Msg("error reading")
-				return struct{}{}, nil, err
-			}
-
-			expire := ioCacheTTL
-
-			return struct{}{}, &expire, nil
 		}).
 		Build()
 
 	return nil
+}
+
+// PageNum returns the pagenum of a given relation
+func (ioCacheKey *_IOCacheKey) PageNum() (int64, error) {
+	blockNumber, err := strconv.ParseUint(ioCacheKey.Block, 10, 64)
+	if err != nil {
+		log.Warn().Err(err).Str("str int", ioCacheKey.Block).Msgf("invalid integer: %+v", ioCacheKey)
+		return -1, errors.Wrapf(err, "unable to parse block number")
+	}
+
+	pageNum := int64(blockNumber) % int64(lsn.MaxSegmentSize/lsn.WALPageSize)
+
+	return pageNum, nil
+}
+
+// Filename returns the filename of a given relation
+func (ioCacheValue *_IOCacheValue) Filename() (string, error) {
+	ioCacheValue.lock.Lock()
+	defer ioCacheValue.lock.Unlock()
+	if ioCacheValue.filename == "" {
+		if err := ioCacheValue.populateSelf(); err != nil {
+			log.Warn().Err(err).Msg("populating self")
+			return "", errors.Wrap(err, "populating self")
+		}
+	}
+
+	return ioCacheValue.filename, nil
+}
+
+// PageNum returns the pagenum of a given relation
+func (ioCacheValue *_IOCacheValue) PageNum() (int64, error) {
+	ioCacheValue.lock.Lock()
+	defer ioCacheValue.lock.Unlock()
+	if ioCacheValue.filename == "" {
+		if err := ioCacheValue.populateSelf(); err != nil {
+			log.Warn().Err(err).Msg("populating self")
+			return -1, errors.Wrap(err, "populating self")
+		}
+	}
+
+	return ioCacheValue.pageNum, nil
+}
+
+func (ioCacheValue *_IOCacheValue) populateSelf() error {
+	blockNumber, err := strconv.ParseUint(ioCacheValue.Block, 10, 64)
+	if err != nil {
+		log.Warn().Err(err).Str("str int", ioCacheValue.Block).Msgf("invalid integer: %+v", ioCacheValue)
+		return errors.Wrapf(err, "unable to parse block number")
+	}
+
+	ioCacheValue.pageNum = int64(blockNumber) % int64(lsn.MaxSegmentSize/lsn.WALPageSize)
+	fileNum := int64(blockNumber) / int64(lsn.MaxSegmentSize/lsn.WALPageSize)
+	filename := ioCacheValue.Relation
+	if fileNum > 0 {
+		// It's easier to abuse Relation here than to support a parallel refilno
+		// struct member
+		filename = fmt.Sprintf("%s.%d", ioCacheValue.Relation, fileNum)
+	}
+
+	ioCacheValue.filename = path.Join(viper.GetString(config.KeyPGData), "base", string(ioCacheValue.Database), string(filename))
+
+	return nil
+}
+
+func (a *Agent) prefaultPage(ioReq _IOCacheKey) error {
+	pageNum, err := ioReq.PageNum()
+	if err != nil {
+		return errors.Wrapf(err, "unable to find the page number: %+v", ioReq)
+	}
+
+	var buf [lsn.WALPageSize]byte
+	fhCacheValue, exclusiveLock, err := a.fhCacheGetLocked(ioReq)
+	switch {
+	case err != nil:
+		return errors.Wrap(err, "unable to obtain file handle")
+	case exclusiveLock:
+		defer fhCacheValue.lock.Unlock()
+	default:
+		defer fhCacheValue.lock.RUnlock()
+	}
+
+	n, err := fhCacheValue.f.ReadAt(buf[:], pageNum*int64(lsn.WALPageSize))
+	a.metrics.Add(metricsSysPreadBytes, uint64(n))
+	if err != nil {
+		a.metrics.Increment(metricsXLogDumpErrorCount)
+		return errors.Wrap(err, "unable to pread(2)")
+	}
+
+	return nil
+}
+
+func (a *Agent) fhCacheGetLocked(ioReq _IOCacheKey) (fhCacheValue *_FileHandleCacheValue, exclusiveLock bool, err error) {
+	// FIXME(seanc@): the fdCache.Get(_NewFDCacheKey(...)) pattern here should be
+	// replaced with a strict interface on the fdCache and fdCache shouldn't have
+	// its interface exposed to callers like this.  Instead, a.fdCacheGet() should
+	// be a helper method that does the right thing with all of the type
+	// assertions, etc.  Or: a.fdCacheGetLocked()
+	fhValueRaw, err := a.fileHandleCache.Get(_NewFileHandleCacheKey(ioReq))
+	if err != nil {
+		log.Warn().Err(err).Msgf("unable to open file cache: %+v", ioReq)
+		return nil, false, err
+	}
+
+	fhValue, ok := fhValueRaw.(*_FileHandleCacheValue)
+	if !ok {
+		log.Panic().Msgf("unable to type assert file handle in IO Cache: %+v", fhValueRaw)
+	}
+
+	fhValue.lock.RLock()
+	if fhValue.isOpen == true {
+		return fhValue, false, nil
+	}
+
+	fhValue.lock.RUnlock()
+	fhValue.lock.Lock()
+	// Revalidate lock predicate with exclusive lock held
+	if fhValue.isOpen == false {
+		if _, err := fhValue.Open(); err != nil {
+			fhValue.lock.Unlock()
+			return nil, false, errors.Wrapf(err, "unable to re-open file: %+v", fhValue._FileHandleCacheKey)
+		}
+	}
+
+	// force the caller to deal with an exclusive lock in order to not drop
+	// fhValue.lock.  Busy-looping on this lock attempting to demote the lock
+	// isn't worth the hassle.
+	return fhValue, true, nil
 }
