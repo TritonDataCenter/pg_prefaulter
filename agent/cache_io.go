@@ -23,6 +23,7 @@ import (
 	"github.com/joyent/pg_prefaulter/lsn"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
+	"github.com/spf13/viper"
 )
 
 // _IOCacheKey contains the forward lookup information for a given relation
@@ -60,6 +61,9 @@ func (a *Agent) initIOCache(cfg config.Config) error {
 	// burdensome than actually doing the IOs, but maybe that will only be a
 	// visible problem with SSDs. ¯\_(ツ)_/¯
 	a.maxConcurrentIOs = maxConcurrentIOs
+	if viper.IsSet(config.KeyNumIOThreads) {
+		a.maxConcurrentIOs = uint(viper.GetInt(config.KeyNumIOThreads))
+	}
 
 	ioReqs := make(chan _IOCacheKey, a.maxConcurrentIOs)
 	for ioWorker := 0; ioWorker < int(a.maxConcurrentIOs); ioWorker++ {

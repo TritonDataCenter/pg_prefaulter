@@ -18,10 +18,11 @@ const (
 	KeyCirconusCheckTargetHost            = "circonus.check.target_host"
 	KeyCirconusDebug                      = "circonus.debug"
 	KeyCirconusEnabled                    = "circonus.enabled"
-
-	KeyGoogleAgentEnable = "google.agent.enabled"
+	KeyGoogleAgentEnable                  = "google.agent.enabled"
 
 	KeyLogLevel = "log.level"
+
+	KeyNumIOThreads = "run.num-io-threads"
 
 	KeyPGData         = "postgresql.pgdata"
 	KeyPGDatabase     = "postgresql.database"

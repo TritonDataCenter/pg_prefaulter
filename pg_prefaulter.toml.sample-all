@@ -18,6 +18,9 @@
 #mode = "pg"
 #pg_xlogdump-path = "/usr/local/bin/pg_xlogdump"
 
+[run]
+num-io-threads = 1500
+
 [circonus]
 #debug = false
 #enabled = true

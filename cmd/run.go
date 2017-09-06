@@ -95,68 +95,89 @@ func init() {
 
 	{
 		const (
-			modeLong        = "mode"
-			modeShort       = "m"
-			modeAutoDefault = "auto"
+			key          = config.KeyPGMode
+			longName     = "mode"
+			shortName    = "m"
+			defaultValue = "auto"
+			description  = `Mode of operation of the database: "auto", "primary", "follower"`
 		)
 		// FIXME(seanc@): the list of available options needs to be pulled from a
 		// global constant.  This information is duplicated elsewhere in the
 		// validation.
-		runCmd.Flags().StringP(modeLong, modeShort, modeAutoDefault,
-			`Mode of operation of the database: "auto", "primary", "follower"`)
-		viper.BindPFlag(config.KeyPGMode, runCmd.Flags().Lookup(modeLong))
-		viper.SetDefault(config.KeyPGMode, modeAutoDefault)
+		runCmd.Flags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, runCmd.Flags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
 	}
 
 	{
 		const (
-			pollIntervalLong    = "poll-interval"
-			defaultPollInterval = "1s"
+			key          = config.KeyPGPollInterval
+			longName     = "poll-interval"
+			shortName    = "i"
+			defaultValue = "1s"
+			description  = "Interval to poll the database for state change"
 		)
 
-		runCmd.Flags().StringP(pollIntervalLong, "i", defaultPollInterval, "Interval to poll the database for state change")
-		viper.BindPFlag(config.KeyPGPollInterval, runCmd.Flags().Lookup(pollIntervalLong))
-		viper.SetDefault(config.KeyPGPollInterval, defaultPollInterval)
+		runCmd.Flags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, runCmd.Flags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
 	}
 
 	{
 		const (
-			walReadAheadLong    = "wal-readahead"
-			walReadAheadShort   = "n"
-			walReadAheadDefault = 4
+			key          = config.KeyWALReadAhead
+			longName     = "wal-readahead"
+			shortName    = "n"
+			defaultValue = 4
+			description  = "Number of WAL entries to perform read-ahead into"
 		)
 
-		runCmd.Flags().UintP(walReadAheadLong, walReadAheadShort,
-			walReadAheadDefault, "Number of WAL entries to perform read-ahead into")
-		viper.BindPFlag(config.KeyWALReadAhead, runCmd.Flags().Lookup(walReadAheadLong))
-		viper.SetDefault(config.KeyWALReadAhead, walReadAheadDefault)
+		runCmd.Flags().UintP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, runCmd.Flags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
 	}
 
 	{
 		const (
-			pgXLogdumpPathLong  = "xlogdump-bin"
-			pgXLogdumpPathShort = "x"
+			key          = config.KeyNumIOThreads
+			longName     = "num-io-threads"
+			shortName    = "N"
+			defaultValue = 0
+			description  = "Number of IO threads to spawn for IOs"
+		)
+
+		runCmd.Flags().UintP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, runCmd.Flags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key       = config.KeyXLogPath
+			longName  = "xlogdump-bin"
+			shortName = "x"
 			// TODO(seanc@): This could/should probably be a build-time constant that
 			// is platform specific.  Similarly, there should probably be a path that
 			// is independent of the binary name.
-			pgXLogdumpPathDefault = "/usr/local/bin/pg_xlogdump"
+			defaultValue = "/usr/local/bin/pg_xlogdump"
+			description  = "Path to pg_xlogdump(1)"
 		)
 
-		runCmd.Flags().StringP(pgXLogdumpPathLong, pgXLogdumpPathShort,
-			pgXLogdumpPathDefault, "Path to pg_xlogdump(1)")
-		viper.BindPFlag(config.KeyXLogPath, runCmd.Flags().Lookup(pgXLogdumpPathLong))
-		viper.SetDefault(config.KeyXLogPath, pgXLogdumpPathDefault)
+		runCmd.Flags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, runCmd.Flags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
 	}
 
 	{
 		const (
-			pgXLogdumpModeLong    = "xlog-mode"
-			pgXLogdumpModeShort   = "X"
-			pgXLogdumpModeDefault = "pg"
+			key          = config.KeyXLogMode
+			longName     = "xlog-mode"
+			shortName    = "X"
+			defaultValue = "pg"
+			description  = `pg_xlogdump(1) variant: "xlog" or "pg"`
 		)
-		runCmd.Flags().StringP(pgXLogdumpModeLong, pgXLogdumpModeShort,
-			pgXLogdumpModeDefault, `pg_xlogdump(1) variant: "xlog" or "pg"`)
-		viper.BindPFlag(config.KeyXLogMode, runCmd.Flags().Lookup(pgXLogdumpModeLong))
-		viper.SetDefault(config.KeyXLogMode, pgXLogdumpModeDefault)
+		runCmd.Flags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, runCmd.Flags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
 	}
 }
