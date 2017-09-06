@@ -82,14 +82,8 @@ already loaded into the OS'es filesystem cache.
 				return
 			}
 
-			const gopsAgentEndpoint = "127.0.0.1:5431"
-
-			options := &agent.Options{
-				Addr:              gopsAgentEndpoint,
-				NoShutdownCleanup: true,
-			}
-			log.Debug().Str("agent endpoint", options.Addr).Msg("starting gops(1) agent")
-			if err := agent.Listen(options); err != nil {
+			log.Debug().Msg("starting gops(1) agent")
+			if err := agent.Listen(nil); err != nil {
 				log.Fatal().Err(err).Msg("unable to start the gops(1) agent thread")
 			}
 		}()
