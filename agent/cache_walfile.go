@@ -174,14 +174,19 @@ func (a *Agent) prefaultWALFile(walFile string) error {
 			// (16MiB/8KiB == ~2K), at most we should have 2K threads running *
 			// walReadAhead.  That's very survivable for now but can be optimized if
 			// necessary.
-			_, err := a.ioCache.GetIFPresent(_IOCacheKey{
+			ioCacheKey := _IOCacheKey{
 				Tablespace: string(matches[1]),
 				Database:   string(matches[2]),
 				Relation:   string(matches[3]),
 				Block:      string(matches[4]),
-			})
-			if err == gcache.KeyNotFoundError {
+			}
+			_, err := a.ioCache.GetIFPresent(ioCacheKey)
+			switch {
+			case err == nil:
+			case err == gcache.KeyNotFoundError:
 				// cache miss, an IO has been scheduled in the background.
+			case err != nil:
+				log.Debug().Err(err).Msg("iocache prefaultWALFile()")
 			}
 		}
 	}

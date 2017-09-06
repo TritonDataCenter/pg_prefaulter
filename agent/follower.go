@@ -53,6 +53,7 @@ func (a *Agent) runFollower() (loopImmediately bool) {
 		segNo := replayLSN.ID()
 		off := replayLSN.ByteOffset()
 		if uint64(off)+maxBytes <= uint64(off)+(uint64(i+1)*uint64(lsn.WALFileSize))-1 {
+			// log.Debug().Int("segno", int(segNo)).Int("off", int(off)).Int("max bytes", int(maxBytes)).Int("vis lag", int(visibilityLagBytes)).Msg("run follower wal loop break")
 			break
 		}
 		l := lsn.New(segNo, lsn.Offset(uint32(off)+(i*uint32(lsn.WALFileSize))))

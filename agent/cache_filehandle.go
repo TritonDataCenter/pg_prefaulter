@@ -75,12 +75,11 @@ func _NewFileHandleCacheKey(ioCacheKey _IOCacheKey) (_FileHandleCacheKey, error)
 // lsn type.
 func (fhCacheKey *_FileHandleCacheKey) Open() (*os.File, error) {
 	// FIXME(seanc@): Use the logic in the lsn package
-	fileNum := int64(fhCacheKey.Segment) / int64(lsn.MaxSegmentSize/lsn.WALPageSize)
 	filename := fhCacheKey.Relation
-	if fileNum > 0 {
+	if fhCacheKey.Segment > 0 {
 		// It's easier to abuse Relation here than to support a parallel refilno
 		// struct member
-		filename = fmt.Sprintf("%s.%d", fhCacheKey.Relation, fileNum)
+		filename = fmt.Sprintf("%s.%d", fhCacheKey.Relation, fhCacheKey.Segment)
 	}
 
 	filename = path.Join(viper.GetString(config.KeyPGData), "base", string(fhCacheKey.Database), string(filename))
