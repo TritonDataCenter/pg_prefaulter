@@ -65,7 +65,7 @@ func (a *Agent) initIOCache(cfg config.Config) error {
 		a.maxConcurrentIOs = uint(viper.GetInt(config.KeyNumIOThreads))
 	}
 
-	ioReqs := make(chan _IOCacheKey, a.maxConcurrentIOs)
+	ioReqs := make(chan _IOCacheKey)
 	for ioWorker := 0; ioWorker < int(a.maxConcurrentIOs); ioWorker++ {
 		a.ioCacheWG.Add(1)
 		go func(threadID int) {
@@ -75,21 +75,32 @@ func (a *Agent) initIOCache(cfg config.Config) error {
 				a.ioCacheWG.Done()
 			}()
 
-			for ioReq := range ioReqs {
-				start := time.Now()
+			const heartbeat = 60 * time.Second
+			for {
+				select {
+				case <-a.shutdownCtx.Done():
+				case <-time.After(heartbeat):
+					log.Debug().Int("len-ioreqs", len(ioReqs)).Dur("timeout", heartbeat).Msg("iocache timeout")
+				case ioReq, ok := <-ioReqs:
+					if !ok {
+						return
+					}
 
-				if err := a.prefaultPage(ioReq); err != nil {
-					log.Warn().Int("io-worker-thread-id", threadID).Err(err).
-						Str("database", ioReq.Database).Str("relation", ioReq.Relation).
-						Str("block", ioReq.Block).Msg("unable to prefault page")
-				} else {
-					a.metrics.Increment(metricsPrefaultCount)
-				}
+					start := time.Now()
 
-				a.metrics.RecordValue(metricsSysPreadLatency, float64(time.Now().Sub(start)/time.Millisecond))
+					if err := a.prefaultPage(ioReq); err != nil {
+						log.Warn().Int("io-worker-thread-id", threadID).Err(err).
+							Str("database", ioReq.Database).Str("relation", ioReq.Relation).
+							Str("block", ioReq.Block).Msg("unable to prefault page")
+					} else {
+						a.metrics.Increment(metricsPrefaultCount)
+					}
 
-				if a.isShuttingDown() {
-					return
+					a.metrics.RecordValue(metricsSysPreadLatency, float64(time.Now().Sub(start)/time.Millisecond))
+
+					if a.isShuttingDown() {
+						return
+					}
 				}
 			}
 		}(ioWorker)
@@ -108,6 +119,23 @@ func (a *Agent) initIOCache(cfg config.Config) error {
 
 		}).
 		Build()
+
+	go func(c gcache.Cache, name string) {
+		const statsInterval = 60 * time.Second
+		for {
+			select {
+			case <-a.shutdownCtx.Done():
+				return
+			case <-time.After(statsInterval):
+				log.Debug().
+					Uint64("hit", c.HitCount()).
+					Uint64("miss", c.MissCount()).
+					Uint64("lookup", c.LookupCount()).
+					Float64("hit-rate", c.HitRate()).
+					Msg(name)
+			}
+		}
+	}(a.ioCache, "iocache-stats")
 
 	return nil
 }

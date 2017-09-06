@@ -139,6 +139,23 @@ func (a *Agent) initFileHandleCache(cfg config.Config) error {
 		}).
 		Build()
 
+	go func(c gcache.Cache, name string) {
+		const statsInterval = 60 * time.Second
+		for {
+			select {
+			case <-a.shutdownCtx.Done():
+				return
+			case <-time.After(statsInterval):
+				log.Debug().
+					Uint64("hit", c.HitCount()).
+					Uint64("miss", c.MissCount()).
+					Uint64("lookup", c.LookupCount()).
+					Float64("hit-rate", c.HitRate()).
+					Msg(name)
+			}
+		}
+	}(a.fileHandleCache, "filehandle-stats")
+
 	log.Debug().
 		Uint32("rlimit-nofile", maxNumOpenFiles).
 		Uint32("filehandle-cache-size", fhCacheSize).

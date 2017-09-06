@@ -143,6 +143,4 @@ help             This help message
   sufficient fidelity of the underlying condition but doesn't drown the system
   in IO or useless repeated data.  Zerolog supports this but a global singleton
   sampling logger needs to be present someplace.
-* Add a periodic background thread that visits each of the caches and prints
-  various stats about the state of each of the caches.
 * Move these TODO items over to GH issues

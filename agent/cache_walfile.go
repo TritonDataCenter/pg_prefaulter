@@ -47,7 +47,7 @@ var (
 )
 
 func (a *Agent) initWALCache(cfg config.Config) error {
-	walFiles := make(chan string, a.walReadAhead)
+	walFiles := make(chan string)
 	for walWorker := 0; uint32(walWorker) < a.walReadAhead; walWorker++ {
 		a.walCacheWG.Add(1)
 		go func(threadID int) {
@@ -57,19 +57,30 @@ func (a *Agent) initWALCache(cfg config.Config) error {
 				a.walCacheWG.Done()
 			}()
 
-			for walFile := range walFiles {
-				start := time.Now()
+			const heartbeat = 60 * time.Second
+			for {
+				select {
+				case <-a.shutdownCtx.Done():
+				case <-time.After(heartbeat):
+					log.Debug().Int("len-walfiles", len(walFiles)).Dur("timeout", heartbeat).Msg("walfile timeout")
+				case walFile, ok := <-walFiles:
+					if !ok {
+						return
+					}
 
-				if err := a.prefaultWALFile(walFile); err != nil {
-					log.Error().Int("wal-worker-thread-id", threadID).Err(err).Str("wal filename", walFile).Msg("unable to prefault WAL file")
-				} else {
-					a.metrics.Increment(metricsWALFaultCount)
-				}
+					start := time.Now()
 
-				a.metrics.RecordValue(metricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
+					if err := a.prefaultWALFile(walFile); err != nil {
+						log.Error().Int("wal-worker-thread-id", threadID).Err(err).Str("wal filename", walFile).Msg("unable to prefault WAL file")
+					} else {
+						a.metrics.Increment(metricsWALFaultCount)
+					}
 
-				if a.isShuttingDown() {
-					return
+					a.metrics.RecordValue(metricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
+
+					if a.isShuttingDown() {
+						return
+					}
 				}
 			}
 		}(walWorker)
@@ -80,15 +91,35 @@ func (a *Agent) initWALCache(cfg config.Config) error {
 	// perform the real work in a background goroutine.
 	a.walCache = gcache.New(2 * int(a.walReadAhead)).
 		LRU().
-		LoaderFunc(func(key interface{}) (interface{}, error) {
+		LoaderFunc(func(keyRaw interface{}) (interface{}, error) {
+			key := keyRaw.(string)
+			start := time.Now()
+
 			select {
 			case <-a.shutdownCtx.Done():
-			case walFiles <- key.(string):
+			case walFiles <- key:
 			}
 
-			return struct{}{}, nil
+			return true, nil
 		}).
 		Build()
+
+	go func(c gcache.Cache, name string) {
+		const statsInterval = 60 * time.Second
+		for {
+			select {
+			case <-a.shutdownCtx.Done():
+				return
+			case <-time.After(statsInterval):
+				log.Debug().
+					Uint64("hit", c.HitCount()).
+					Uint64("miss", c.MissCount()).
+					Uint64("lookup", c.LookupCount()).
+					Float64("hit-rate", c.HitRate()).
+					Msg(name)
+			}
+		}
+	}(a.walCache, "walcache-stats")
 
 	return nil
 }
