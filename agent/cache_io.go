@@ -127,15 +127,11 @@ func (a *Agent) prefaultPage(ioReq _IOCacheKey) error {
 		return errors.Wrapf(err, "unable to find the page number: %+v", ioReq)
 	}
 
-	fhCacheValue, exclusiveLock, err := a.fhCacheGetLocked(ioReq)
-	switch {
-	case err != nil:
+	fhCacheValue, err := a.fhCacheGetLocked(ioReq)
+	if err != nil {
 		return errors.Wrap(err, "unable to obtain file handle")
-	case exclusiveLock:
-		defer fhCacheValue.lock.Unlock()
-	default:
-		defer fhCacheValue.lock.RUnlock()
 	}
+	defer fhCacheValue.lock.RUnlock()
 
 	var buf [lsn.WALPageSize]byte
 	n, err := fhCacheValue.f.ReadAt(buf[:], pageNum*int64(lsn.WALPageSize))

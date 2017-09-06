@@ -48,9 +48,8 @@ type _FileHandleCacheValue struct {
 	// are immutable and therefore do not need to be guarded by a lock.  WTB
 	// `const` modifier for compiler enforced immutability.  Where's my C++ when I
 	// need it?
-	lock   *sync.RWMutex
-	f      *os.File
-	isOpen bool
+	lock *sync.RWMutex
+	f    *os.File
 }
 
 func _NewFileHandleCacheKey(ioCacheKey _IOCacheKey) (_FileHandleCacheKey, error) {
@@ -99,7 +98,7 @@ func (fh *_FileHandleCacheValue) Close() {
 	defer fh.lock.Unlock()
 
 	fh.f.Close()
-	fh.isOpen = false
+	fh.f = nil
 }
 
 func (a *Agent) initFileHandleCache(cfg config.Config) error {
@@ -121,30 +120,12 @@ func (a *Agent) initFileHandleCache(cfg config.Config) error {
 				log.Panic().Msgf("unable to type assert key in file handle cache: %T %+v", fhCacheKeyRaw, fhCacheKeyRaw)
 			}
 
-			start := time.Now()
-			f, err := fhCacheKey.Open()
-			end := time.Now()
-			if err != nil {
-				log.Warn().Err(err).Msgf("unable to open relation file: %+v", fhCacheKey)
-				return nil, nil, err
-			}
-			a.metrics.RecordValue(metricsSysOpenLatency, float64(end.Sub(start)/time.Microsecond))
-			a.metrics.Increment(metricsSysOpenCount)
-
-			// Return a valid value, unlocked.  gcache provides us with lock coverage
-			// until we return.  Copies of this struct in different threads will have
-			// an RLock() on the file handle.  Eviction will acquire a Lock() and
-			// block on readers.  Consumers of this value will need to either abort
-			// their operation when RLock() is acquired and isOpen is false, or it
-			// will have to reacquire Lock and re-Open() File.
 			fhCacheVal := _FileHandleCacheValue{
 				_FileHandleCacheKey: fhCacheKey,
 
-				lock:   &sync.RWMutex{},
-				f:      f,
-				isOpen: true,
+				lock: &sync.RWMutex{},
+				f:    nil,
 			}
-
 			return &fhCacheVal, &fhCacheTTL, nil
 		}).
 		EvictedFunc(func(fhCacheKeyRaw, fhCacheValueRaw interface{}) {
@@ -166,15 +147,15 @@ func (a *Agent) initFileHandleCache(cfg config.Config) error {
 	return nil
 }
 
-func (a *Agent) fhCacheGetLocked(ioReq _IOCacheKey) (fhCacheValue *_FileHandleCacheValue, exclusiveLock bool, err error) {
+func (a *Agent) fhCacheGetLocked(ioReq _IOCacheKey) (fhCacheValue *_FileHandleCacheValue, err error) {
 	fhCacheKey, err := _NewFileHandleCacheKey(ioReq)
 	if err != nil {
-		return nil, false, errors.Wrap(err, "unable to create a filehandle cache key")
+		return nil, errors.Wrap(err, "unable to create a filehandle cache key")
 	}
 
 	fhValueRaw, err := a.fileHandleCache.Get(fhCacheKey)
 	if err != nil {
-		return nil, false, errors.Wrap(err, "unable to open cache file")
+		return nil, errors.Wrap(err, "unable to open cache file")
 	}
 
 	fhValue, ok := fhValueRaw.(*_FileHandleCacheValue)
@@ -182,23 +163,37 @@ func (a *Agent) fhCacheGetLocked(ioReq _IOCacheKey) (fhCacheValue *_FileHandleCa
 		log.Panic().Msgf("unable to type assert file handle in IO Cache: %+v", fhValueRaw)
 	}
 
-	fhValue.lock.RLock()
-	if fhValue.isOpen == true {
-		return fhValue, false, nil
-	}
-
-	fhValue.lock.RUnlock()
-	fhValue.lock.Lock()
-	// Revalidate lock predicate with exclusive lock held
-	if fhValue.isOpen == false {
-		if _, err := fhValue.Open(); err != nil {
-			fhValue.lock.Unlock()
-			return nil, false, errors.Wrapf(err, "unable to re-open file: %+v", fhValue._FileHandleCacheKey)
+	// Loop until we exit this with an error or the read lock held.
+	for {
+		fhValue.lock.RLock()
+		if fhValue.f != nil {
+			return fhValue, nil
 		}
+
+		fhValue.lock.RUnlock()
+		fhValue.lock.Lock()
+		// Revalidate lock predicate with exclusive lock held
+		if fhValue.f != nil {
+			fhValue.lock.Unlock()
+
+			// loop to acquire the readlock
+			continue
+		}
+
+		start := time.Now()
+		f, err := fhValue.Open()
+		if err != nil {
+			log.Warn().Err(err).Msgf("unable to open relation file: %+v", fhCacheKey)
+			fhValue.lock.Unlock()
+			return nil, errors.Wrapf(err, "unable to re-open file: %+v", fhValue._FileHandleCacheKey)
+		}
+		end := time.Now()
+		fhValue.f = f
+		fhValue.lock.Unlock()
+
+		a.metrics.RecordValue(metricsSysOpenLatency, float64(end.Sub(start)/time.Microsecond))
+		a.metrics.Increment(metricsSysOpenCount)
 	}
 
-	// force the caller to deal with an exclusive lock in order to not drop
-	// fhValue.lock.  Busy-looping on this lock attempting to demote the lock
-	// isn't worth the hassle.
-	return fhValue, true, nil
+	return fhValue, nil
 }
