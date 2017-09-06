@@ -69,7 +69,6 @@ func (a *Agent) initIOCache(cfg config.Config) error {
 	for ioWorker := 0; ioWorker < int(a.maxConcurrentIOs); ioWorker++ {
 		a.ioCacheWG.Add(1)
 		go func(threadID int) {
-			log.Debug().Int("io-worker-thread-id", threadID).Msg("starting IO worker thread")
 			defer func() {
 				log.Debug().Int("io-worker-thread-id", threadID).Msg("shutting down IO worker thread")
 				a.ioCacheWG.Done()
@@ -80,7 +79,6 @@ func (a *Agent) initIOCache(cfg config.Config) error {
 				select {
 				case <-a.shutdownCtx.Done():
 				case <-time.After(heartbeat):
-					log.Debug().Int("len-ioreqs", len(ioReqs)).Dur("timeout", heartbeat).Msg("iocache timeout")
 				case ioReq, ok := <-ioReqs:
 					if !ok {
 						return

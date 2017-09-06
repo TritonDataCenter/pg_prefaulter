@@ -62,7 +62,6 @@ func (a *Agent) initWALCache(cfg config.Config) error {
 				select {
 				case <-a.shutdownCtx.Done():
 				case <-time.After(heartbeat):
-					log.Debug().Int("len-walfiles", len(walFiles)).Dur("timeout", heartbeat).Msg("walfile timeout")
 				case walFile, ok := <-walFiles:
 					if !ok {
 						return
@@ -93,7 +92,6 @@ func (a *Agent) initWALCache(cfg config.Config) error {
 		LRU().
 		LoaderFunc(func(keyRaw interface{}) (interface{}, error) {
 			key := keyRaw.(string)
-			start := time.Now()
 
 			select {
 			case <-a.shutdownCtx.Done():
