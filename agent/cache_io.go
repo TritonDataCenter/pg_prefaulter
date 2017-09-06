@@ -106,7 +106,7 @@ func (a *Agent) initIOCache(cfg config.Config) error {
 			}
 		}(ioWorker)
 	}
-	log.Info().Int("io-worker-threads", a.maxConcurrentIOs).Msg("started IO worker threads")
+	log.Info().Uint("io-worker-threads", a.maxConcurrentIOs).Msg("started IO worker threads")
 
 	a.ioCache = gcache.New(int(ioCacheSize)).
 		ARC().
