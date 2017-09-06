@@ -82,7 +82,11 @@ func (a *Agent) initWALCache(cfg config.Config) error {
 	a.walCache = gcache.New(2 * int(a.walReadAhead)).
 		LRU().
 		LoaderFunc(func(key interface{}) (interface{}, error) {
-			walFiles <- key.(string)
+			select {
+			case <-a.shutdownCtx.Done():
+			case walFiles <- key.(string):
+			}
+
 			return struct{}{}, nil
 		}).
 		Build()
