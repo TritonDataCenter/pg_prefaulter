@@ -69,7 +69,6 @@ var runCmd = &cobra.Command{
 				Str(config.KeyXLogMode, viper.GetString(config.KeyXLogMode)).
 				Str(config.KeyXLogPath, viper.GetString(config.KeyXLogPath)).
 				Dur(config.KeyPGPollInterval, viper.GetDuration(config.KeyPGPollInterval)).
-				Uint(config.KeyWALThreads, uint(viper.GetInt(config.KeyWALThreads))).
 				Msg("flags")
 		}()
 
@@ -131,19 +130,6 @@ func init() {
 			walReadAheadDefault, "Number of WAL entries to perform read-ahead into")
 		viper.BindPFlag(config.KeyWALReadAhead, runCmd.Flags().Lookup(walReadAheadLong))
 		viper.SetDefault(config.KeyWALReadAhead, walReadAheadDefault)
-	}
-
-	{
-		const (
-			walThreadsLong    = "wal-threads"
-			walThreadsShort   = "t"
-			walThreadsDefault = 4
-		)
-
-		runCmd.Flags().UintP(walThreadsLong, walThreadsShort,
-			walThreadsDefault, "Number of conurrent prefetch threads per WAL file")
-		viper.BindPFlag(config.KeyWALThreads, runCmd.Flags().Lookup(walThreadsLong))
-		viper.SetDefault(config.KeyWALThreads, walThreadsDefault)
 	}
 
 	{

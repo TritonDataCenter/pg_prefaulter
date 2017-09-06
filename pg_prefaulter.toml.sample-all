@@ -13,7 +13,6 @@
 
 [postgresql.wal]
 #read-ahead = 4
-#threads = 4
 
 [postgresql.xlog]
 #mode = "pg"
