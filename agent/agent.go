@@ -63,11 +63,11 @@ type Agent struct {
 	walReadAhead     uint32
 	maxConcurrentIOs uint
 
-	// fdCache is a file descriptor cache to prevent re-open(2)'ing files
+	// fileHandleCache is a file descriptor cache to prevent re-open(2)'ing files
 	// continually.
-	fdCache gcache.Cache
+	fileHandleCache gcache.Cache
 
-	// ioReqCache is a read-through cache to:
+	// ioCache is a read-through cache to:
 	//
 	// a) provide a reentrant interface
 	// b) deduplicate page pread(2) requests (i.e. no thundering-herd for the same
@@ -76,7 +76,8 @@ type Agent struct {
 	//    promoting pages from the MRU to the MFU.
 	// d) sized sufficiently large so that we can spend our time faulting in pages
 	//    vs performing cache hits.
-	ioReqCache gcache.Cache
+	ioCache   gcache.Cache
+	ioCacheWG sync.WaitGroup
 
 	// walCache is a read-through cache to:
 	//
@@ -121,14 +122,14 @@ func New(cfg config.Config) (a *Agent, err error) {
 		return nil, errors.Wrap(err, "unable to initialize db connection pool")
 	}
 
-	if err := a.initFDCache(cfg); err != nil {
-		return nil, errors.Wrap(err, "unable to initialize fdcache")
+	if err := a.initFileHandleCache(cfg); err != nil {
+		return nil, errors.Wrap(err, "unable to initialize filehandle cache")
 	}
 
 	// The ioCache is created before the walCache because the walCache feeds work
 	// into the ioCache.
-	if err := a.initIOReqCache(cfg); err != nil {
-		return nil, errors.Wrap(err, "unable to initialize ioReqCache")
+	if err := a.initIOCache(cfg); err != nil {
+		return nil, errors.Wrap(err, "unable to initialize IO Cache")
 	}
 
 	// Initialize the walCache last because this is the primary driver of work in

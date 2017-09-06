@@ -14,6 +14,7 @@
 package agent
 
 import (
+	"sync"
 	"time"
 
 	"github.com/bluele/gcache"
@@ -23,7 +24,32 @@ import (
 	log "github.com/rs/zerolog/log"
 )
 
-func (a *Agent) initIOReqCache(cfg config.Config) error {
+// _IOCacheKey contains the forward lookup information for a given relation
+// file.  _IOCacheKey is a
+// [comparable](https://golang.org/ref/spec#Comparison_operators) struct
+// suitable for use as a lookup key.  These values are immutable and map 1:1
+// with the string inputs read from the pg_xlogdump(1) scanning utility.
+type _IOCacheKey struct {
+	Tablespace string
+	Database   string
+	Relation   string
+	Block      string
+}
+
+// _IOCacheValue contains the forward lookup information for a given relation
+// file.  _IOCacheValue is a
+// [comparable](https://golang.org/ref/spec#Comparison_operators) struct used as
+// a lookup key.  These values are immutable and map 1:1 with the string inputs
+// read from the xlog scanning utility.
+type _IOCacheValue struct {
+	_IOCacheKey
+
+	lock     sync.Mutex
+	filename string
+	pageNum  int64
+}
+
+func (a *Agent) initIOCache(cfg config.Config) error {
 	const (
 		driveOpsPerSec        = 150
 		numVDevs              = 6
@@ -31,27 +57,32 @@ func (a *Agent) initIOReqCache(cfg config.Config) error {
 		headsPerDrive         = 4
 		efficiency            = 0.5
 		maxConcurrentIOs      = uint((driveOpsPerSec * numVDevs * drivesPerVDev * headsPerDrive) * efficiency)
-		ioReqCacheSize   uint = uint(lsn.WALFileSize / lsn.WALPageSize)
-		ioReqCacheTTL         = 86400 * time.Second
+		ioCacheSize      uint = uint(lsn.WALFileSize / lsn.WALPageSize)
+		ioCacheTTL            = 86400 * time.Second
 	)
 
 	a.maxConcurrentIOs = maxConcurrentIOs
 
-	a.ioReqCache = gcache.New(int(ioReqCacheSize)).
+	a.ioCache = gcache.New(int(ioCacheSize)).
 		ARC().
 		LoaderExpireFunc(func(key interface{}) (interface{}, *time.Duration, error) {
-			rfKey, ok := key.(_RelationFileKey)
+			ioCacheKey, ok := key.(_IOCacheKey)
 			if !ok {
-				log.Panic().Msgf("unable to type assert key in IO Cache: %T %+v", rfKey, rfKey)
+				log.Panic().Msgf("unable to type assert key in IO Cache: %T %+v", ioCacheKey, ioCacheKey)
 			}
 
-			fdValueRaw, err := a.fdCache.Get(_FDCacheKey{_RelationFileKey: rfKey})
+			// FIXME(seanc@): the fdCache.Get(_NewFDCacheKey(...)) pattern here should
+			// be replaced with a strict interface on the fdCache and fdCache
+			// shouldn't have its interface exposed to callers like this.  Instead,
+			// a.fdCacheGet() should be a helper method that does the right thing with
+			// all of the type assertions, etc.
+			fdValueRaw, err := a.fileHandleCache.Get(_NewFileHandleCacheKey(ioCacheKey))
 			if err != nil {
-				log.Warn().Err(err).Msgf("unable to open file cache: %+v", rfKey)
+				log.Warn().Err(err).Msgf("unable to open file cache: %+v", ioCacheKey)
 				return struct{}{}, nil, err
 			}
 
-			fdValue, ok := fdValueRaw.(*_FDCacheValue)
+			fdValue, ok := fdValueRaw.(*_FileHandleCacheValue)
 			if !ok {
 				log.Panic().Msgf("unable to type assert file handle in IO Cache: %+v", fdValueRaw)
 			}
@@ -66,8 +97,8 @@ func (a *Agent) initIOReqCache(cfg config.Config) error {
 				if fdValue.isOpen == false {
 					if _, err := fdValue.Open(); err != nil {
 						fdValue.lock.Unlock()
-						log.Warn().Err(err).Msgf("unable to re-open file: %+v", rfKey)
-						return struct{}{}, nil, errors.Wrapf(err, "unable to re-open file: %+v", rfKey)
+						log.Warn().Err(err).Msgf("unable to re-open file: %+v", ioCacheKey)
+						return struct{}{}, nil, errors.Wrapf(err, "unable to re-open file: %+v", ioCacheKey)
 					}
 				}
 				// Hold onto our exclusive lock until we return.  We could in theory
@@ -77,16 +108,16 @@ func (a *Agent) initIOReqCache(cfg config.Config) error {
 			}
 
 			var buf [lsn.WALPageSize]byte
-			pageNum, err := rfKey.PageNum()
+			pageNum, err := ioCacheKey.PageNum()
 			if err != nil {
-				log.Warn().Err(err).Msgf("unable to find the page number: %+v", rfKey)
-				return struct{}{}, nil, errors.Wrapf(err, "unable to find the page number: %+v", rfKey)
+				log.Warn().Err(err).Msgf("unable to find the page number: %+v", ioCacheKey)
+				return struct{}{}, nil, errors.Wrapf(err, "unable to find the page number: %+v", ioCacheKey)
 			}
 
 			// FIXME(seanc@): Need to wrap this ReadAt() call in a wait group in
 			// order to prevent IO starvation.
 			start := time.Now()
-			n, err := fdValue.fd.ReadAt(buf[:], pageNum*int64(lsn.WALPageSize))
+			n, err := fdValue.f.ReadAt(buf[:], pageNum*int64(lsn.WALPageSize))
 			end := time.Now()
 
 			a.metrics.RecordValue(metricsSysPreadLatency, float64(end.Sub(start)/time.Millisecond))
@@ -94,12 +125,12 @@ func (a *Agent) initIOReqCache(cfg config.Config) error {
 			a.metrics.Add(metricsSysPreadCount, uint64(n))
 			if err != nil {
 				a.metrics.Increment(metricsXLogDumpErrorCount)
-				log.Warn().Err(err).Str("database", rfKey.Database).Str("relation", rfKey.Relation).
-					Str("block", rfKey.Block).Int64("page", pageNum).Int("n", n).Msg("error reading")
+				log.Warn().Err(err).Str("database", ioCacheKey.Database).Str("relation", ioCacheKey.Relation).
+					Str("block", ioCacheKey.Block).Int64("page", pageNum).Int("n", n).Msg("error reading")
 				return struct{}{}, nil, err
 			}
 
-			expire := ioReqCacheTTL
+			expire := ioCacheTTL
 
 			return struct{}{}, &expire, nil
 		}).

@@ -43,7 +43,7 @@ const (
 	metricsDBWALCount            = "num-wal-files"
 	metricsSysCloseCount         = "sys-close-count"
 	metricsSysOpenCount          = "sys-open-count"
-	metricsSysOpenLatency        = "sys-open-ms"
+	metricsSysOpenLatency        = "sys-open-us"
 	metricsSysPreadCount         = "sys-pread-count"
 	metricsSysPreadLatency       = "sys-pread-ms"
 	metricsVersionSelfCommit     = "version-self-commit"

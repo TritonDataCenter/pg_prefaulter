@@ -134,7 +134,7 @@ func (a *Agent) prefaultWALFile(walFile string) error {
 		for _, matches := range submatches {
 			// TODO(seanc@): Send the IO requests here to a pool of io cache request
 			// workers instead of fetching through the cache.  I think.
-			_, err := a.ioReqCache.GetIFPresent(_RelationFileKey{
+			_, err := a.ioCache.GetIFPresent(_IOCacheKey{
 				Tablespace: string(matches[1]),
 				Database:   string(matches[2]),
 				Relation:   string(matches[3]),
