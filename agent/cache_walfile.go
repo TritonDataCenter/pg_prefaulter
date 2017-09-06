@@ -47,7 +47,7 @@ var (
 )
 
 func (a *Agent) initWALCache(cfg config.Config) error {
-	walFiles := make(chan string)
+	walFiles := make(chan string, a.walReadAhead)
 	for walWorker := 0; uint32(walWorker) < a.walReadAhead; walWorker++ {
 		a.walCacheWG.Add(1)
 		go func(threadID int) {

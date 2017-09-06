@@ -61,7 +61,7 @@ func (a *Agent) initIOCache(cfg config.Config) error {
 	// visible problem with SSDs. ¯\_(ツ)_/¯
 	a.maxConcurrentIOs = maxConcurrentIOs
 
-	ioReqs := make(chan _IOCacheKey)
+	ioReqs := make(chan _IOCacheKey, a.maxConcurrentIOs)
 	for ioWorker := 0; ioWorker < int(a.maxConcurrentIOs); ioWorker++ {
 		a.ioCacheWG.Add(1)
 		go func(threadID int) {
