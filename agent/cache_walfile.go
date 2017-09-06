@@ -47,11 +47,8 @@ var (
 )
 
 func (a *Agent) initWALCache(cfg config.Config) error {
-	// Create a worker pool of two WAL threads.  FIXME(seanc@): make this an agent
-	// tunable.
-	const numWALWorkers = 2
 	walFiles := make(chan string)
-	for walWorker := 0; walWorker < numWALWorkers; walWorker++ {
+	for walWorker := 0; uint32(walWorker) < a.walReadAhead; walWorker++ {
 		a.walCacheWG.Add(1)
 		go func(threadID int) {
 			log.Debug().Int("wal-worker-thread-id", threadID).Msg("starting WAL worker thread")
