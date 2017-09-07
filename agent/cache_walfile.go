@@ -34,7 +34,7 @@ import (
 //                          ^^^^^ ------------- Database ID
 //                                ^^^^ -------- Relation ID
 //                                         ^^ - Block Number
-var pgXLogDumpRE = regexp.MustCompile(`rel ([\d]+)/([\d]+)/([\d]+) blk ([\d]+)`)
+var pgXLogDumpRE = regexp.MustCompile(`rel ([\d]+)/([\d]+)/([\d]+) (?:fork [^\s]+ )blk ([\d]+)`)
 
 // https://github.com/snaga/xlogdump
 //
