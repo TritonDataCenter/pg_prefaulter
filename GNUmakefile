@@ -1,6 +1,12 @@
 TEST?=$$(go list ./... |grep -v 'vendor')
 GOFMT_FILES?=$$(find . -name '*.go' |grep -v vendor)
 PG_PREFAULTER ?= pg_prefaulter
+UNAME := $(shell uname)
+
+# Can only be compiled/ran on BSD, as unix.SIGINFO is non-existent on GNU/Linux.
+ifeq ($(UNAME), Linux)
+$(error Linux is currently unsupported, exiting)
+endif
 
 default:: help
 

@@ -4,3 +4,4 @@ pg_prefaulter
 .pgdata_primary/
 pg_prefaulter.toml
 dist/
+*.log
