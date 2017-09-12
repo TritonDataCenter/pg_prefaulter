@@ -28,8 +28,10 @@ https://www.postgresql.org/docs/current/static/sql-vacuum.html[`VACUUM`], or a
 write-heavy workload, the `pg_prefaulter` should reduce apply lag considerably.
 See the <<background,Background section>> for additional details.
 
-* image:images/lag_recovery_thumb.png["Apply Lag recovery",height=200,link="images/lag_recovery.png"]
-* image:images/lag_steady_state_thumb.png["Apply Lag steady-state",height=200,link="images/lag_steady_state.png"]
+Before:: Replication apply lag before and during the recovery once `pg_prefaulter` was deployed
+  image:images/lag_recovery_thumb.png["Apply Lag recovery",height=200,link="images/lag_recovery.png"]
+After:: Replication apply lag as observed during the same workload seen earlier while `pg_prefaulter` is still running
+  image:images/lag_steady_state_thumb.png["Apply Lag steady-state",height=200,link="images/lag_steady_state.png"]
 
 
 [[usage]]
