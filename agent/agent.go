@@ -184,11 +184,19 @@ RETRY:
 		// that is shared between a primary and follower interface.
 		switch state := dbState; state {
 		case _DBStatePrimary:
-			loopImmediately = a.runPrimary()
+			loopImmediately, err = a.runPrimary()
+			log.Error().Err(err).Msg("unable to run primary")
 		case _DBStateFollower:
-			loopImmediately = a.runFollower()
+			loopImmediately, err = a.runFollower()
+			log.Error().Err(err).Msg("unable to run follower")
 		default:
 			panic(fmt.Sprintf("unknown state: %+v", state))
+		}
+
+		// Purge all the things if we can't talk to PG.  Calling Purge() on the
+		// WALCache purges all downstream caches (i.e. iocache and fhcache).
+		if err != nil {
+			a.walCache.Purge()
 		}
 	}
 }

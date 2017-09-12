@@ -13,26 +13,20 @@
 
 package agent
 
-import (
-	log "github.com/rs/zerolog/log"
-)
+import "github.com/pkg/errors"
 
 // runPrimary is executed when talking to a writable database.
-func (a *Agent) runPrimary() (loopImmediately bool) {
+func (a *Agent) runPrimary() (loopImmediately bool, err error) {
 	// Connect to the primary and see what the lag is in bytes between the primary
 	// and its connected followers.  Report out a histogram of lag.
 
-	_, err := a.queryLag(_QueryLagPrimary)
-	if err != nil {
-		log.Error().Err(err).Msg("unable to query primary lag")
-		return false
+	if _, err = a.queryLag(_QueryLagPrimary); err != nil {
+		return false, errors.Wrap(err, "unable to query primary lag")
 	}
 
-	_, err = a.queryLastLog()
-	if err != nil {
-		log.Error().Err(err).Msg("unable to query last WAL lag")
-		return false
+	if _, err = a.queryLastLog(); err != nil {
+		return false, errors.Wrap(err, "unable to query last WAL lag")
 	}
 
-	return false
+	return false, nil
 }
