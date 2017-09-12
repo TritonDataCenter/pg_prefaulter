@@ -65,25 +65,13 @@
   branch = "master"
   name = "github.com/jackc/pgx"
   packages = [".","chunkreader","internal/sanitize","pgio","pgproto3","pgtype"]
-  revision = "9c8ef1acddff5f99e8cab446c0fd30a413ba69ab"
+  revision = "3e49ad8decfd543c62be37e3d2474692bbfd45a0"
 
 [[projects]]
   branch = "master"
   name = "github.com/kardianos/osext"
   packages = ["."]
   revision = "ae77be60afb1dcacde03767a8c37337fad28ac14"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/kr/pretty"
-  packages = ["."]
-  revision = "cfb55aafdaf3ec08f0db22699ab822c50091b1c4"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/kr/text"
-  packages = ["."]
-  revision = "7cafcd837844e784b526369c9bce262804aebc60"
 
 [[projects]]
   branch = "master"
@@ -164,22 +152,16 @@
   version = "v1.0.0"
 
 [[projects]]
-  name = "github.com/y0ssar1an/q"
-  packages = ["."]
-  revision = "392ac3089fcf8c70ebbe85f4c29778b7ebe27a9f"
-  version = "v1.0.2"
-
-[[projects]]
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "9aade4d3a3b7e6d876cd3823ad20ec45fc035402"
+  revision = "033028a6b48fc0a55d5e5b4465cba74afb6d7fee"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/text"
   packages = ["internal/gen","internal/triegen","internal/ucd","transform","unicode/cldr","unicode/norm"]
-  revision = "bd91bbf73e9a4a801adbfb97133c992678533126"
+  revision = "acd49d43e9b95df46670431bf5c7ae59586daad8"
 
 [[projects]]
   branch = "v2"
@@ -190,6 +172,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b5c472847fcb5a777ffbc14fa87a3c299e776dca650be7bdb46a49467d1dd2a8"
+  inputs-digest = "1ea0237d6833aeec87d71817bc558725f6958613fff2fb83e6bf3e5108f479ae"
   solver-name = "gps-cdcl"
   solver-version = 1
