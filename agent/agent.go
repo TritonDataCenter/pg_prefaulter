@@ -155,10 +155,14 @@ RETRY:
 		switch state := dbState; state {
 		case _DBStatePrimary:
 			loopImmediately, err = a.runPrimary()
-			log.Error().Err(err).Msg("unable to run primary")
+			if err != nil {
+				log.Error().Err(err).Msg("unable to run primary")
+			}
 		case _DBStateFollower:
 			loopImmediately, err = a.runFollower()
-			log.Error().Err(err).Msg("unable to run follower")
+			if err != nil {
+				log.Error().Err(err).Msg("unable to run follower")
+			}
 		default:
 			panic(fmt.Sprintf("unknown state: %+v", state))
 		}
