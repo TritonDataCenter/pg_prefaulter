@@ -55,7 +55,7 @@ func (key *_Key) filename(pgdataPath string) string {
 		filename = strconv.FormatUint(uint64(key.relation), 10)
 	}
 
-	filename = path.Join(pgdataPath, "base", string(key.database), string(filename))
+	filename = path.Join(pgdataPath, "base", strconv.FormatUint(uint64(key.database), 10), string(filename))
 
 	return filename
 }

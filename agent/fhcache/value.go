@@ -45,7 +45,7 @@ func (value *_Value) open(pgdataPath string) (*os.File, error) {
 	filename := value._Key.filename(pgdataPath)
 	f, err := os.Open(filename)
 	if err != nil {
-		return nil, errors.Wrapf(err, "unable to open relation name %q", filename)
+		return nil, errors.Wrapf(err, "unable to open relation segment %q", filename)
 	}
 
 	return f, nil
