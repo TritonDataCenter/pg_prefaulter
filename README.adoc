@@ -124,23 +124,3 @@ cleandb-shard    Clean entire shard
 
 help             This help message
 ----
-
-[[todo]]
-== TODO
-
-* Add shell completion targets
-* Add manpage generation targets
-* Add markdown generation targets
-* Add a generic status command to show:
-** how far behind a given followers are when connected to the primary
-** how far behind a given follower is when connected to the follower
-* Add a SIGINFO handler to log stats about the current state of the process
-* Expose expvar interface to enable online parameter twiddling
-* Change the console logger to use mattn/isa-tty and use the console writer for
-  pretty-printing.
-* Fix the Circonus enable/disable (reported by Sam)
-* Add a sampling logger to enable high-volume error points that provide
-  sufficient fidelity of the underlying condition but doesn't drown the system
-  in IO or useless repeated data.  Zerolog supports this but a global singleton
-  sampling logger needs to be present someplace.
-* Move these TODO items over to GH issues
