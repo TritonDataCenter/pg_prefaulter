@@ -1,4 +1,3 @@
-TEST?=$$(go list ./... |grep -v 'vendor')
 GOFMT_FILES?=$$(find . -name '*.go' |grep -v vendor)
 PG_PREFAULTER ?= pg_prefaulter
 
@@ -13,7 +12,7 @@ pg_prefaulter::
 
 .PHONY: check
 check:: ## 10 Run go test
-	go test -v $(TEST)
+	go test -v ./...
 
 .PHONY: vet
 vet:: ## 10 vet the binary (excluding dependencies)
