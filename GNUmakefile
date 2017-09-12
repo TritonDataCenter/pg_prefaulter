@@ -8,7 +8,7 @@ build:: $(PG_PREFAULTER) ## 10 Build pg_prefaulter binary
 
 .PHONY: pg_prefaulter
 pg_prefaulter::
-	go build -o $@ main.go
+	go build -ldflags "-X main.commit=`git describe --tags --always` -X main.date=`date +%Y-%m-%d_%H:%d`" -o $@ main.go
 
 .PHONY: check
 check:: ## 10 Run go test
