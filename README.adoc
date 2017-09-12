@@ -28,12 +28,6 @@ https://www.postgresql.org/docs/current/static/sql-vacuum.html[`VACUUM`], or a
 write-heavy workload, the `pg_prefaulter` should reduce apply lag considerably.
 See the <<background,Background section>> for additional details.
 
-Before:: Replication apply lag before and during the recovery once `pg_prefaulter` was deployed
-  image:images/lag_recovery_thumb.png["Apply Lag recovery",height=400,link="images/lag_recovery.png"]
-After:: Replication apply lag as observed during the same workload seen earlier while `pg_prefaulter` is still running
-  image:images/lag_steady_state_thumb.png["Apply Lag steady-state",height=400,link="images/lag_steady_state.png"]
-
-
 [[usage]]
 == Usage
 
@@ -203,3 +197,8 @@ single thread, access to random pages will return quickly because the `pread(2)`
 call will result in a filesystem cache-hit operation (versus the pessimistic
 path where the page faults in both PostgreSQL's cache, the VFS cache, and the
 apply process blocks performing an an extended `pread(2)` operation).
+
+Before:: Replication apply lag before and during the recovery once `pg_prefaulter` was deployed
+  image:images/lag_recovery_thumb.png["Apply Lag recovery",height=400,link="images/lag_recovery.png"]
+After:: Replication apply lag as observed during the same workload seen earlier while `pg_prefaulter` is still running
+  image:images/lag_steady_state_thumb.png["Apply Lag steady-state",height=400,link="images/lag_steady_state.png"]
