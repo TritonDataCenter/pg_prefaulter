@@ -16,12 +16,16 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	cgm "github.com/circonus-labs/circonus-gometrics"
 	"github.com/jackc/pgx"
 	"github.com/joyent/pg_prefaulter/buildtime"
+	"github.com/joyent/pg_prefaulter/pg"
+	"github.com/pkg/errors"
 	"github.com/spf13/cast"
 	"github.com/spf13/viper"
+	"golang.org/x/sys/unix"
 )
 
 type (
@@ -32,9 +36,41 @@ type (
 type Config struct {
 	DBPool
 	*Metrics
+
+	FHCacheConfig
+	IOCacheConfig
+	WALCacheConfig
 }
 
-func NewDefault() Config {
+type FHCacheConfig struct {
+	MaxOpenFiles uint
+	Size         uint
+	TTL          time.Duration
+	PGDataPath   string
+}
+
+type IOCacheConfig struct {
+	MaxConcurrentIOs uint
+	Size             uint
+	TTL              time.Duration
+}
+
+type WALMode int
+
+const (
+	WALModeDefault WALMode = iota
+	WALModePG
+	WALModeXLog
+)
+
+type WALCacheConfig struct {
+	Mode         WALMode
+	ReadAhead    uint32
+	PGDataPath   string
+	XLogDumpPath string
+}
+
+func NewDefault() (*Config, error) {
 	cmc := &cgm.Config{}
 	if viper.GetBool(KeyCirconusEnabled) {
 		cmc.Interval = "10s"
@@ -90,7 +126,86 @@ func NewDefault() Config {
 		panic(fmt.Sprintf("unsupported log level: %q", logLevel))
 	}
 
-	return Config{
+	fhConfig := FHCacheConfig{}
+	{
+		const (
+			defaultTTL          = 3600 * time.Second
+			numReservedFDs uint = 50
+		)
+
+		if fhConfig.MaxOpenFiles == 0 {
+			var procNumFiles unix.Rlimit
+			if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &procNumFiles); err != nil {
+				return nil, errors.Wrap(err, "unable to determine rlimits for number of files")
+			}
+			fhConfig.MaxOpenFiles = uint(procNumFiles.Cur)
+			fhConfig.Size = fhConfig.MaxOpenFiles - numReservedFDs
+		} else {
+			// TODO(seanc@): Allow a user to set this value manually
+		}
+
+		fhConfig.PGDataPath = viper.GetString(KeyPGData)
+		// Artificially clamp the size of the filehandle cache.  For some systems
+		// this may be running with an elevated rlimit and 65K open files.  That's
+		// not necessarily a bad thing, but 2K files could be as much as ~2TB of
+		// maxed out PG segments.
+		//
+		// FIXME(seanc@): Make 2K constant a tunable
+		if fhConfig.Size > 2000 {
+			fhConfig.Size = 2000
+		}
+
+		fhConfig.TTL = defaultTTL
+	}
+
+	ioConfig := IOCacheConfig{}
+	{
+		const (
+			driveOpsPerSec = 150
+			numVDevs       = 6
+			drivesPerVDev  = 2
+			headsPerDrive  = 4
+			efficiency     = 0.5
+			defaultTTL     = 86400 * time.Second
+
+			// TODO(seanc@): Investigation is required to figure out if maxConcurrentIOs
+			// should be clamped to the max number o pages in a given WAL file *
+			// walReadAhead.  At some point the scheduling of the IOs is going to be more
+			// burdensome than actually doing the IOs, but maybe that will only be a
+			// visible problem with SSDs. ¯\_(ツ)_/¯
+			defaultMaxConcurrentIOs = uint((driveOpsPerSec * numVDevs * drivesPerVDev * headsPerDrive) * efficiency)
+
+			// ioCacheSize is set to cache all operations for ~100 WAL files
+			ioCacheSize uint = 100 * uint(pg.WALFileSize/pg.WALPageSize)
+		)
+
+		if viper.IsSet(KeyNumIOThreads) || viper.GetInt(KeyNumIOThreads) == 0 {
+			ioConfig.MaxConcurrentIOs = defaultMaxConcurrentIOs
+		} else {
+			ioConfig.MaxConcurrentIOs = uint(viper.GetInt(KeyNumIOThreads))
+		}
+
+		ioConfig.Size = ioCacheSize
+		ioConfig.TTL = defaultTTL
+	}
+
+	walConfig := WALCacheConfig{}
+	{
+		switch mode := viper.GetString(KeyXLogMode); mode {
+		case "xlog":
+			walConfig.Mode = WALModeXLog
+		case "pg":
+			walConfig.Mode = WALModePG
+		default:
+			panic(fmt.Sprintf("unsupported %q mode: %q", KeyXLogMode, mode))
+		}
+
+		walConfig.PGDataPath = viper.GetString(KeyPGData)
+		walConfig.ReadAhead = uint32(viper.GetInt(KeyWALReadAhead))
+		walConfig.XLogDumpPath = viper.GetString(KeyXLogPath)
+	}
+
+	return &Config{
 		DBPool: pgx.ConnPoolConfig{
 			MaxConnections: 5,
 			AfterConnect:   nil,
@@ -114,7 +229,11 @@ func NewDefault() Config {
 			},
 		},
 		Metrics: cmc,
-	}
+
+		FHCacheConfig:  fhConfig,
+		IOCacheConfig:  ioConfig,
+		WALCacheConfig: walConfig,
+	}, nil
 }
 
 // IsDebug returns true when the server is configured for debug level

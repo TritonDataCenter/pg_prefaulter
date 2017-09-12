@@ -1,4 +1,4 @@
-package lsn
+package pg
 
 import (
 	"fmt"
@@ -11,9 +11,17 @@ import (
 )
 
 type (
-	LSN     uint64
-	Segment uint32
-	Offset  uint32
+	OID uint64
+
+	// HeapBlockNumber represents a given HeapBlockNumber inside of a segment
+	HeapBlockNumber uint64
+	HeapPageNumber  uint64
+)
+
+type (
+	LSN         uint64
+	HeapSegment uint32
+	Offset      uint32
 
 	TimelineID uint32
 )
@@ -22,11 +30,14 @@ const (
 	// Value representing an invalid LSN (used in error conditions)
 	InvalidLSN = LSN(math.MaxUint64)
 
-	// WALPageSize == PostgreSQL's Page Size.  Page Size == BLKSZ
-	// WALPageSize defaults to 8KB
+	// WALPageSize == PostgreSQL's Page Size.  Page Size == BLKSZ WALPageSize
+	// defaults to 8KB.  The same value used in the WAL is used in the PostgreSQL
+	// Heap.
 	//
 	// TODO(seanc@): pull this data from `SHOW wal_block_size`.
 	WALPageSize = 8 * units.KiB
+
+	HeapPageSize = WALPageSize
 
 	// WALFileSize == PostgreSQL WAL File Size.
 	// WALFileSize defaults to 16MB
@@ -34,22 +45,28 @@ const (
 	// TODO(seanc@): pull this value from `SHOW wal_segment_size`
 	WALFileSize = 16 * units.MiB
 
-	// MaxSegmentSize is the max size of a single file in a relation.
+	// HeapMaxSegmentSize is the max size of a single file in a relation.
 	//
 	// TODO(seanc@): pull this value from pg_controldata(1)'s "Blocks per segment
 	// of large relation" and multiply it by WALBlockSize
-	MaxSegmentSize = 1 * units.GiB
+	HeapMaxSegmentSize = 1 * units.GiB
 
 	WALFilesPerSegment uint64 = 0x100000000 / uint64(WALFileSize)
 )
 
 // New creates a new LSN from a segment ID and offset
-func New(segNo Segment, off Offset) LSN {
+func New(segNo HeapSegment, off Offset) LSN {
 	return LSN(uint64(segNo)<<32 | uint64(off))
 }
 
-// Parse returns a parsed LSN
-func Parse(in string) (LSN, error) {
+// HeapSegmentPageNum returns the page number of a given page inside of a heap
+// segment.
+func HeapSegmentPageNum(block HeapBlockNumber) HeapPageNumber {
+	return HeapPageNumber(uint64(block) % uint64(HeapMaxSegmentSize/HeapPageSize))
+}
+
+// ParseLSN returns a parsed LSN
+func ParseLSN(in string) (LSN, error) {
 	parts := strings.Split(in, "/")
 	if len(parts) != 2 {
 		return InvalidLSN, fmt.Errorf("invalid LSN: %q", in)
@@ -65,12 +82,12 @@ func Parse(in string) (LSN, error) {
 		return InvalidLSN, errors.Wrap(err, "unable to decode the segment ID")
 	}
 
-	return New(Segment(id), Offset(offset)), nil
+	return New(HeapSegment(id), Offset(offset)), nil
 }
 
 // ID returns the numeric ID of the WAL.
-func (lsn LSN) ID() Segment {
-	return Segment(uint32(lsn >> 32))
+func (lsn LSN) ID() HeapSegment {
+	return HeapSegment(uint32(lsn >> 32))
 }
 
 // Offset returns the byte offset inside of a WAL segment.
@@ -79,15 +96,20 @@ func (lsn LSN) ByteOffset() Offset {
 }
 
 // Segment returns the Segment number of the LSN.
-func (lsn LSN) SegmentNumber() Segment {
-	return Segment(uint64(lsn) / uint64(WALFileSize))
+func (lsn LSN) SegmentNumber() HeapSegment {
+	return HeapSegment(uint64(lsn) / uint64(WALFileSize))
+}
+
+// SegmentNumber returns the segment number from a given block number.
+func SegmentNumber(block uint64) HeapSegment {
+	return HeapSegment(int64(block) / int64(HeapMaxSegmentSize/WALPageSize))
 }
 
 // String returns the string representation of an LSN.
 func (lsn LSN) String() string {
-	var segNo Segment
+	var segNo HeapSegment
 	var off Offset
-	segNo = Segment(lsn >> 32)
+	segNo = HeapSegment(lsn >> 32)
 	off = Offset(lsn)
 	return fmt.Sprintf("%X/%X", segNo, off)
 }

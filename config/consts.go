@@ -39,3 +39,21 @@ const (
 	KeyXLogMode = "postgresql.xlog.mode"
 	KeyXLogPath = "postgresql.xlog.pg_xlogdump-path"
 )
+
+const (
+	MetricsSysPreadLatency = "ioc-sys-pread-ms"
+	MetricsPrefaultCount   = "ioc-prefault-count"
+
+	MetricsSysCloseCount      = "fh-sys-close-count"
+	MetricsSysOpenCount       = "fh-sys-open-count"
+	MetricsSysOpenLatency     = "fh-sys-open-us"
+	MetricsSysPreadBytes      = "fh-sys-pread-bytes"
+	MetricsXLogDumpErrorCount = "fh-xlogdump-error-count"
+
+	MetricsWALFaultCount        = "wal-file-fault-count"
+	MetricsWALFaultTime         = "wal-file-fault-time"
+	MetricsXLogDumpLen          = "wal-xlogdump-out-len"
+	MetricsXLogDumpLinesMatched = "wal-xlogdump-lines-matched"
+	MetricsXLogDumpLinesScanned = "wal-xlogdump-lines-scanned"
+	MetricsXLogPrefaulted       = "wal-xlog-prefaulted-count"
+)

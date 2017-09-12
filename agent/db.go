@@ -19,7 +19,7 @@ import (
 
 	"github.com/jackc/pgx"
 	"github.com/joyent/pg_prefaulter/config"
-	"github.com/joyent/pg_prefaulter/lsn"
+	"github.com/joyent/pg_prefaulter/pg"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
@@ -41,20 +41,10 @@ const (
 	metricsDBTimelineID          = "timeline-id"
 	metricsDBVersionPG           = "version-pg"
 	metricsDBWALCount            = "num-wal-files"
-	metricsSysCloseCount         = "sys-close-count"
-	metricsSysOpenCount          = "sys-open-count"
-	metricsSysOpenLatency        = "sys-open-us"
-	metricsSysPreadBytes         = "sys-pread-bytes"
-	metricsPrefaultCount         = "prefault-count"
-	metricsSysPreadLatency       = "sys-pread-ms"
+	metricsWALFileCandidate      = "num-wal-candidates"
 	metricsVersionSelfCommit     = "version-self-commit"
 	metricsVersionSelfDate       = "version-self-date"
 	metricsVersionSelfVersion    = "version-self-version"
-	metricsXLogDumpErrorCount    = "xlogdump-error-count"
-	metricsXLogDumpLen           = "xlogdump-out-len"
-	metricsXLogDumpLinesMatched  = "xlogdump-lines-matched"
-	metricsXLogDumpLinesScanned  = "xlogdump-lines-scanned"
-	metricsXLogPrefaulted        = "xlog-prefaulted-count"
 )
 
 type (
@@ -130,7 +120,7 @@ func (a *Agent) dbState() (_DBState, error) {
 	}
 }
 
-func (a *Agent) initDBPool(cfg config.Config) (err error) {
+func (a *Agent) initDBPool(cfg *config.Config) (err error) {
 	poolConfig := cfg.DBPool
 	poolConfig.AfterConnect = func(conn *pgx.Conn) error {
 		var version string
@@ -230,7 +220,7 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (uint64, error) {
 }
 
 // queryLastLog queries to see if the WAL log for a given server has changed.
-func (a *Agent) queryLastLog() (lsn.TimelineID, error) {
+func (a *Agent) queryLastLog() (pg.TimelineID, error) {
 	sql := "SELECT timeline_id, redo_wal_file FROM pg_control_checkpoint()"
 
 	rows, err := a.pool.QueryEx(a.shutdownCtx, sql, nil)
@@ -242,7 +232,7 @@ func (a *Agent) queryLastLog() (lsn.TimelineID, error) {
 	var numWALFiles uint64
 	defer func() { a.metrics.Add(metricsDBWALCount, numWALFiles) }()
 
-	var timelineID lsn.TimelineID
+	var timelineID pg.TimelineID
 	var walFile string
 	for rows.Next() {
 		err = rows.Scan(&timelineID, &walFile)
@@ -250,8 +240,8 @@ func (a *Agent) queryLastLog() (lsn.TimelineID, error) {
 			return 0, errors.Wrap(err, "unable to scan WAL file")
 		}
 
-		a.walLock.Lock()
-		defer a.walLock.Unlock()
+		a.pgStateLock.Lock()
+		defer a.pgStateLock.Unlock()
 		if a.lastWALLog != "" && a.lastWALLog != walFile {
 			numWALFiles++
 		}
@@ -259,7 +249,7 @@ func (a *Agent) queryLastLog() (lsn.TimelineID, error) {
 
 		// If the timeline changed, purge the walCache assuming we're going to need
 		// to prefault in new data.
-		if a.timelineID != timelineID {
+		if a.timelineID != 0 && a.timelineID != timelineID {
 			a.walCache.Purge()
 		}
 		a.timelineID = timelineID
@@ -281,7 +271,7 @@ const (
 )
 
 // queryLSN queries a specific LSN from the database.
-func (a *Agent) queryLSN(lsnQuery LSNQuery) (l lsn.LSN, err error) {
+func (a *Agent) queryLSN(lsnQuery LSNQuery) (l pg.LSN, err error) {
 	// sql must return one column with an LSN type as the result
 	var sql string
 	switch lsnQuery {
@@ -295,11 +285,11 @@ func (a *Agent) queryLSN(lsnQuery LSNQuery) (l lsn.LSN, err error) {
 
 	var lsnStr string
 	if err := a.pool.QueryRowEx(a.shutdownCtx, sql, nil).Scan(&lsnStr); err != nil {
-		return lsn.InvalidLSN, errors.Wrapf(err, "unable to query DB: %v", lsnQuery)
+		return pg.InvalidLSN, errors.Wrapf(err, "unable to query DB: %v", lsnQuery)
 	}
 
-	if l, err = lsn.Parse(lsnStr); err != nil {
-		return lsn.InvalidLSN, errors.Wrapf(err, "unable to parse LSN: %q", lsnStr)
+	if l, err = pg.ParseLSN(lsnStr); err != nil {
+		return pg.InvalidLSN, errors.Wrapf(err, "unable to parse LSN: %q", lsnStr)
 	}
 
 	return l, nil

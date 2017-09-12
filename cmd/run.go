@@ -79,7 +79,12 @@ var runCmd = &cobra.Command{
 		log.Info().Msg("Starting " + buildtime.PROGNAME)
 		defer log.Info().Msg("Stopped " + buildtime.PROGNAME)
 
-		a, err := agent.New(config.NewDefault())
+		cfg, err := config.NewDefault()
+		if err != nil {
+			return errors.Wrap(err, "unable to generate default config")
+		}
+
+		a, err := agent.New(cfg)
 		if err != nil {
 			return errors.Wrap(err, "unable to start agent")
 		}

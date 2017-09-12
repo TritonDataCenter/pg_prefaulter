@@ -1,23 +1,23 @@
-package lsn_test
+package pg_test
 
 import (
 	"testing"
 
-	"github.com/joyent/pg_prefaulter/lsn"
+	"github.com/joyent/pg_prefaulter/pg"
 	"github.com/kylelemons/godebug/pretty"
 )
 
 // Precompute the expected results from constants
 func TestConstants(t *testing.T) {
-	if diff := pretty.Compare(lsn.WALPageSize, 8192); diff != "" {
+	if diff := pretty.Compare(pg.WALPageSize, 8192); diff != "" {
 		t.Fatalf("WALPageSize diff: (-got +want)\n%s", diff)
 	}
 
-	if diff := pretty.Compare(lsn.WALFileSize, 16777216); diff != "" {
+	if diff := pretty.Compare(pg.WALFileSize, 16777216); diff != "" {
 		t.Fatalf("WALSegmentSize diff: (-got +want)\n%s", diff)
 	}
 
-	if diff := pretty.Compare(lsn.WALFilesPerSegment, 256); diff != "" {
+	if diff := pretty.Compare(pg.WALFilesPerSegment, 256); diff != "" {
 		t.Fatalf("WALSegmentsPerXLogId diff: (-got +want)\n%s", diff)
 	}
 }
@@ -27,7 +27,7 @@ func TestType(t *testing.T) {
 		in       string
 		out      string
 		num      uint64
-		timeline lsn.TimelineID
+		timeline pg.TimelineID
 		filename string
 		id       uint32
 		offset   uint32
@@ -78,7 +78,7 @@ func TestType(t *testing.T) {
 		t.Run("", func(st *testing.T) {
 			st.Parallel()
 
-			l, err := lsn.Parse(test.in)
+			l, err := pg.ParseLSN(test.in)
 			if err != nil {
 				st.Fatalf("bad: %v", err)
 			}

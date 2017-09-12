@@ -2,6 +2,36 @@
 include::front-matter.adoc[]
 :keywords: postgresql, go, wal, fault, prefault, replication
 
+[[introduction]]
+== Introduction
+
+https://github.com/joyent/pg_prefaulter[`pg_prefaulter`] is used to mitigate the
+effects of PostgreSQL replication lag.
+
+In a primary-follower database cluster using PostgreSQL streaming replication,
+the PostgreSQL's primary database instance enjoys the benefit of being able to
+parallelize its random IO workload.  The follower, however, is not so fortunate.
+The follower receives a sequential stream of WAL records and sequentially
+schedules all `pread(2)` IOs in order in a single process with blocking IO.  If
+the average IO latency per random `pread(2)` is ~8ms, that means that the
+follower can only complete ~125 random IO `pread(2)` calls per second.
+
+The `pg_prefaulter` reads the stream of WAL records using
+https://www.postgresql.org/docs/current/static/pgxlogdump.html[`pg_xlogdump(1)`]
+and schedules concurrent IOs in order to prefault PostgreSQL heap pages into the
+follower's filesystem cache.  The effect of this is dramatic in that the
+follower is able to apply pages with a filesystem cache-hit.
+
+If you've seen replication lag due to
+https://github.com/reorg/pg_repack/[`pg_repack`],
+https://www.postgresql.org/docs/current/static/sql-vacuum.html[`VACUUM`], or a
+write-heavy workload, the `pg_prefaulter` should reduce apply lag considerably.
+See the <<background,Background section>> for additional details.
+
+* image::images/lag_recovery_thumb.png["Apply Lag recovery",height=200,link="images/lag_recovery.png"]
+* image::images/lag_steady_state_thumb.png["Apply Lag steady-state",height=200,link="images/lag_steady_state.png"]
+
+
 [[usage]]
 == Usage
 
@@ -124,3 +154,50 @@ cleandb-shard    Clean entire shard
 
 help             This help message
 ----
+
+[[background]]
+== Background
+
+PostgreSQL forks a separate process to handle each connection to the database.
+As database worker processes handle work, they modify database files and commit
+transactions.  Commit of a database transaction flushes an entry into the
+write-ahead-log (WAL).
+
+PostgreSQL's streaming-based replication system is based on "log-shipping:" the
+WAL is streamed to remote hosts.  Database replicas apply the changes listed in
+the instructions within the WAL using the PostgreSQL crash recovery mechanism:
+they read the log from beginning to end, find the changes to the underlying
+datafiles (the "PostgreSQL Heap", or "Heap" for short) and make the relevant
+changes to the database files.
+
+The replica's WAL-apply operation is performed in a single process, using a
+single thread.  Each time a WAL-entry is "consumed" as the replica reads in the
+corresponding page of the underlying datafile.  The WAL-replay process on the
+replica waits for the serial execution of disk I/O to complete and load the
+underlying page(s) from the heap.  Unlike the primary, the follower lacks the
+ability to spread its work across multiple processes.  As a consequence, the
+replicas only perform single-process, single-threaded, blocking IO, and cannot
+apply the WAL as quickly as the primary who generates the WAL files and are
+using parallel IO.  To add insult to injury, the follower is prone to having its
+filesystem cache fault, resulting in a physical disk IO, further slowing down
+the apply process.
+
+Fortunately, the WAL-itself gives perfect information to the replica regarding
+what I/O operations will be required (for example, "write 50 bytes to relation
+16439 at block number 2357235235").  However, for correctness of transaction
+commit it is important that the WAL be replayed in-order.  The `pg_prefaulter`
+is a helper application for the replica: it queries the replica PostgreSQL
+process for information about where it is in the replay.  The `pg_prefaulter`
+then uses the information encoded in the WAL files themselves to initiate
+async-I/O operations (with a configurable degree of concurrency) with the goal
+of giving the operating system a chance to load the file into the filesystem
+cache before the PostgreSQL startup process (e.g. `postgres: startup process
+recovering 00000001000002870000005E`) fetches the page from the filesystem.
+Once the portions of the database files are resident in filesystem cache, the
+PostgreSQL replica will be able to access them without having to wait so long
+because the necessary page will already be resident in the filesystem cache.
+The end result is that even though the replica is still a single-process with a
+single thread, access to random pages will return quickly because the `pread(2)`
+call will result in a filesystem cache-hit operation (versus the pessimistic
+path where the page faults in both PostgreSQL's cache, the VFS cache, and the
+apply process blocks performing an an extended `pread(2)` operation).

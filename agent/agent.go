@@ -25,23 +25,18 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/alecthomas/units"
-	"github.com/bluele/gcache"
 	cgm "github.com/circonus-labs/circonus-gometrics"
 	"github.com/jackc/pgx"
+	"github.com/joyent/pg_prefaulter/agent/fhcache"
+	"github.com/joyent/pg_prefaulter/agent/iocache"
+	"github.com/joyent/pg_prefaulter/agent/walcache"
 	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/joyent/pg_prefaulter/config"
-	"github.com/joyent/pg_prefaulter/lsn"
+	"github.com/joyent/pg_prefaulter/lib"
+	"github.com/joyent/pg_prefaulter/pg"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
-)
-
-const (
-	// stacktrace buffer size
-	stacktraceBufSize = 1 * units.MiB
-
-	metricsWALFaultCount = "fault-count"
-	metricsWALFaultTime  = "fault-time"
 )
 
 type Agent struct {
@@ -54,55 +49,19 @@ type Agent struct {
 
 	metrics *cgm.CirconusMetrics
 
-	walLock    sync.RWMutex
-	lastWALLog string
+	pgStateLock sync.RWMutex
+	lastWALLog  string
 	// timelineID is the timeline ID from the last queryLastLog()
 	// operation. timelineID is protected by walLock.
-	timelineID lsn.TimelineID
+	timelineID pg.TimelineID
 
-	walReadAhead     uint32
-	maxConcurrentIOs uint
-
-	// fileHandleCache is a file descriptor cache to prevent re-open(2)'ing files
-	// continually.
-	fileHandleCache gcache.Cache
-
-	// ioCache is a read-through cache to:
-	//
-	// a) provide a reentrant interface
-	// b) deduplicate page pread(2) requests (i.e. no thundering-herd for the same
-	//    page file)
-	// c) prevent tainting of the filesystem cache (i.e. ZFS ARC) by artificially
-	//    promoting pages from the MRU to the MFU.
-	// d) sized sufficiently large so that we can spend our time faulting in pages
-	//    vs performing cache hits.
-	ioCache   gcache.Cache
-	ioCacheWG sync.WaitGroup
-
-	// walCache is a read-through cache to:
-	//
-	// a) provide a reentrant interface
-	// b) deduplicate requests (i.e. no thundering-herd for the same WAL file)
-	// c) deliberately intollerant of scans because we know the input is monotonic
-	// d) sized to include only the walReadAhead
-	walCache   gcache.Cache
-	walCacheWG sync.WaitGroup
+	fileHandleCache *fhcache.FileHandleCache
+	ioCache         *iocache.IOCache
+	walCache        *walcache.WALCache
 }
 
-func New(cfg config.Config) (a *Agent, err error) {
-	a = &Agent{
-		walReadAhead: uint32(viper.GetInt(config.KeyWALReadAhead)),
-	}
-
-	switch mode := viper.GetString(config.KeyXLogMode); mode {
-	case "xlog":
-		xlogRE = xlogdumpRE.Copy()
-	case "pg":
-		xlogRE = pgXLogDumpRE.Copy()
-	default:
-		panic(fmt.Sprintf("unsupported %q mode: %q", config.KeyXLogMode, mode))
-	}
-
+func New(cfg *config.Config) (a *Agent, err error) {
+	a = &Agent{}
 	a.metrics, err = cgm.NewCirconusMetrics(cfg.Metrics)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create a stats agent")
@@ -122,20 +81,31 @@ func New(cfg config.Config) (a *Agent, err error) {
 		return nil, errors.Wrap(err, "unable to initialize db connection pool")
 	}
 
-	if err := a.initFileHandleCache(cfg); err != nil {
-		return nil, errors.Wrap(err, "unable to initialize filehandle cache")
+	{
+		fhCache, err := fhcache.New(a.shutdownCtx, cfg, a.metrics)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to initialize filehandle cache")
+		}
+
+		a.fileHandleCache = fhCache
 	}
 
-	// The ioCache is created before the walCache because the walCache feeds work
-	// into the ioCache.
-	if err := a.initIOCache(cfg); err != nil {
-		return nil, errors.Wrap(err, "unable to initialize IO Cache")
+	{
+		ioCache, err := iocache.New(a.shutdownCtx, cfg, a.metrics, a.fileHandleCache)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to initialize IO Cache")
+		}
+
+		a.ioCache = ioCache
 	}
 
-	// Initialize the walCache last because this is the primary driver of work in
-	// the tier of caches (i.e. WAL -> IO -> FD).
-	if err := a.initWALCache(cfg); err != nil {
-		return nil, errors.Wrap(err, "unable to initialize WAL cache")
+	{
+		walCache, err := walcache.New(a.shutdownCtx, cfg, a.metrics, a.ioCache)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to initialize WAL cache")
+		}
+
+		a.walCache = walCache
 	}
 
 	return a, nil
@@ -164,7 +134,7 @@ func (a *Agent) Start() {
 	var loopImmediately bool = true
 RETRY:
 	for {
-		if a.isShuttingDown() {
+		if lib.IsShuttingDown(a.shutdownCtx) {
 			break RETRY
 		}
 
@@ -218,24 +188,15 @@ func (a *Agent) Wait() error {
 	}
 
 	// Drain work from the WAL cache before returning
-	a.walCacheWG.Wait()
+	a.walCache.Wait()
 
 	return nil
 }
 
-// isShuttingDown is a convenience method that returns true when the agent is
-// shutting down.
-func (a *Agent) isShuttingDown() bool {
-	select {
-	case <-a.shutdownCtx.Done():
-		return true
-	default:
-		return false
-	}
-}
-
 // signalHandler runs the signal handler thread
 func (a *Agent) startSignalHandler() {
+	const stacktraceBufSize = 1 * units.MiB
+
 	// pre-allocate a buffer
 	buf := make([]byte, stacktraceBufSize)
 
