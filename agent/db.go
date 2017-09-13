@@ -120,9 +120,37 @@ func (a *Agent) dbState() (_DBState, error) {
 	}
 }
 
+// ensureDBPool creates a new database connection pool.  If the connection fails
+// to be established, ensureDBPool will return an error.
+func (a *Agent) ensureDBPool() (err error) {
+	a.pgStateLock.RLock()
+	if a.pool != nil {
+		a.pgStateLock.RUnlock()
+		return nil
+	}
+	a.pgStateLock.RUnlock()
+
+	a.pgStateLock.Lock()
+	if a.pool != nil {
+		a.pgStateLock.Unlock()
+		return nil
+	}
+	defer a.pgStateLock.Unlock()
+
+	var pool *pgx.ConnPool
+	if pool, err = pgx.NewConnPool(*a.poolConfig); err != nil {
+		return errors.Wrap(err, "unable to create a new DB connection pool")
+	}
+
+	a.pool = pool
+	return nil
+}
+
+// initDBPool configures the database connection pool for lazy initialization.
+// The database connection pool won't be initialized until ensureDBPool is
+// called.
 func (a *Agent) initDBPool(cfg *config.Config) (err error) {
-	poolConfig := cfg.DBPool
-	poolConfig.AfterConnect = func(conn *pgx.Conn) error {
+	cfg.DBPool.AfterConnect = func(conn *pgx.Conn) error {
 		var version string
 		sql := `SELECT VERSION()`
 		if err := conn.QueryRowEx(a.shutdownCtx, sql, nil).Scan(&version); err != nil {
@@ -134,9 +162,7 @@ func (a *Agent) initDBPool(cfg *config.Config) (err error) {
 		return nil
 	}
 
-	if a.pool, err = pgx.NewConnPool(poolConfig); err != nil {
-		return errors.Wrap(err, "unable to create a new DB connection pool")
-	}
+	a.poolConfig = &cfg.DBPool
 
 	return nil
 }

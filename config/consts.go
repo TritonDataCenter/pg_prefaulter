@@ -23,6 +23,7 @@ const (
 	KeyLogLevel = "log.level"
 
 	KeyNumIOThreads = "run.num-io-threads"
+	KeyRetryDBInit  = "run.retry-db-init"
 
 	KeyPGData         = "postgresql.pgdata"
 	KeyPGDatabase     = "postgresql.database"

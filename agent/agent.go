@@ -40,16 +40,18 @@ import (
 )
 
 type Agent struct {
+	cfg *config.Agent
+
 	signalCh chan os.Signal
 
 	shutdown    func()
 	shutdownCtx context.Context
 
-	pool *pgx.ConnPool
-
 	metrics *cgm.CirconusMetrics
 
 	pgStateLock sync.RWMutex
+	pool        *pgx.ConnPool
+	poolConfig  *config.DBPool
 	lastWALLog  string
 	// timelineID is the timeline ID from the last queryLastLog()
 	// operation. timelineID is protected by walLock.
@@ -61,7 +63,10 @@ type Agent struct {
 }
 
 func New(cfg *config.Config) (a *Agent, err error) {
-	a = &Agent{}
+	a = &Agent{
+		cfg: &cfg.Agent,
+	}
+
 	a.metrics, err = cgm.NewCirconusMetrics(cfg.Metrics)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create a stats agent")
@@ -72,7 +77,7 @@ func New(cfg *config.Config) (a *Agent, err error) {
 	a.metrics.SetTextValue(metricsVersionSelfVersion, buildtime.VERSION)
 
 	// Handle shutdown via a.shutdownCtx
-	a.signalCh = make(chan os.Signal, 1)
+	a.signalCh = make(chan os.Signal, 10)
 	signal.Notify(a.signalCh, os.Interrupt, unix.SIGTERM, unix.SIGHUP, unix.SIGPIPE, unix.SIGINFO)
 
 	a.shutdownCtx, a.shutdown = context.WithCancel(context.Background())
@@ -119,6 +124,16 @@ func (a *Agent) Start() {
 
 	log.Debug().Msg("Starting " + buildtime.PROGNAME + " agent")
 
+	a.pgStateLock.Lock()
+	if a.pool != nil {
+		// In the event that the caller cycles between a Start()'ed and Stop()'ed
+		// agent, reset the DB connection pool.  The DB connection pool is stopped
+		// during Stop() but is not nil'ed out in order to let DB connections drain
+		// asynchronously after Stop() has been called.
+		a.pool = nil
+	}
+	a.pgStateLock.Unlock()
+
 	go a.startSignalHandler()
 
 	if viper.GetBool(config.KeyCirconusEnabled) {
@@ -141,6 +156,20 @@ RETRY:
 		if !loopImmediately {
 			d := viper.GetDuration(config.KeyPGPollInterval)
 			time.Sleep(d)
+		}
+
+		// If the connection pool is uninitialized or failed to acquire a connection
+		// at startup, retry assuming this is a transient error.  ensureDBPool
+		// guards all future calls in the event loop from a nil pool.
+		if err := a.ensureDBPool(); err != nil {
+			if a.cfg.RetryInit {
+				log.Error().Err(err).Msg("unable to initialize db connection pool, retrying")
+				loopImmediately = false
+				goto RETRY
+			} else {
+				log.Error().Err(err).Msg("unable to initialize db connection pool, exiting")
+				break RETRY
+			}
 		}
 
 		dbState, err = a.dbState()
@@ -180,7 +209,19 @@ func (a *Agent) Stop() {
 	a.stopSignalHandler()
 	a.shutdown()
 	a.metrics.Flush()
-	a.pool.Close()
+
+	a.pgStateLock.Lock()
+	defer a.pgStateLock.Unlock()
+	if a.pool != nil {
+		a.pool.Close()
+
+		// NOTE(seanc): explicitly do not nil out the pool value because the
+		// connection pool does the right thing(tm) with regards to preventing new
+		// connections from being established.  Agent.Start() will reset the value
+		// to a nil value.
+		//a.pool = nil
+	}
+
 	log.Debug().Msg("Stopped " + buildtime.PROGNAME + " agent")
 }
 
