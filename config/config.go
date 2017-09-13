@@ -37,9 +37,14 @@ type Config struct {
 	DBPool
 	*Metrics
 
+	Agent
 	FHCacheConfig
 	IOCacheConfig
 	WALCacheConfig
+}
+
+type Agent struct {
+	RetryInit bool
 }
 
 type FHCacheConfig struct {
@@ -124,6 +129,11 @@ func NewDefault() (*Config, error) {
 		pgxLogLevel = pgx.LogLevelDebug
 	default:
 		panic(fmt.Sprintf("unsupported log level: %q", logLevel))
+	}
+
+	agentConfig := Agent{}
+	{
+		agentConfig.RetryInit = viper.GetBool(KeyRetryDBInit)
 	}
 
 	fhConfig := FHCacheConfig{}
@@ -230,6 +240,7 @@ func NewDefault() (*Config, error) {
 		},
 		Metrics: cmc,
 
+		Agent:          agentConfig,
 		FHCacheConfig:  fhConfig,
 		IOCacheConfig:  ioConfig,
 		WALCacheConfig: walConfig,

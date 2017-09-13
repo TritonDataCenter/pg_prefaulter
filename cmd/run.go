@@ -130,6 +130,18 @@ func init() {
 
 	{
 		const (
+			key          = config.KeyRetryDBInit
+			longName     = "retry-init"
+			defaultValue = false
+			description  = `Retry connecting to the database during initialization`
+		)
+		runCmd.Flags().Bool(longName, defaultValue, description)
+		viper.BindPFlag(key, runCmd.Flags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
 			key          = config.KeyWALReadAhead
 			longName     = "wal-readahead"
 			shortName    = "n"

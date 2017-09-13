@@ -14,7 +14,7 @@
     </dependency>
 
     <method_context/>
-    <exec_method name='start' type='method' exec='/opt/local/bin/pg_prefaulter run --config=%{config_file}' timeout_seconds='60'>
+    <exec_method name='start' type='method' exec='/opt/local/bin/pg_prefaulter run --config=%{config_file} --retry-db-init' timeout_seconds='60'>
       <method_context>
         <method_environment>
           <envvar name='HOME' value='/var/tmp'/>

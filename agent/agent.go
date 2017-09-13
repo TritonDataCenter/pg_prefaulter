@@ -40,6 +40,8 @@ import (
 )
 
 type Agent struct {
+	cfg *config.Agent
+
 	signalCh chan os.Signal
 
 	shutdown    func()
@@ -61,7 +63,10 @@ type Agent struct {
 }
 
 func New(cfg *config.Config) (a *Agent, err error) {
-	a = &Agent{}
+	a = &Agent{
+		cfg: &cfg.Agent,
+	}
+
 	a.metrics, err = cgm.NewCirconusMetrics(cfg.Metrics)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create a stats agent")
@@ -72,7 +77,7 @@ func New(cfg *config.Config) (a *Agent, err error) {
 	a.metrics.SetTextValue(metricsVersionSelfVersion, buildtime.VERSION)
 
 	// Handle shutdown via a.shutdownCtx
-	a.signalCh = make(chan os.Signal, 1)
+	a.signalCh = make(chan os.Signal, 10)
 	signal.Notify(a.signalCh, os.Interrupt, unix.SIGTERM, unix.SIGHUP, unix.SIGPIPE, unix.SIGINFO)
 
 	a.shutdownCtx, a.shutdown = context.WithCancel(context.Background())
@@ -157,9 +162,14 @@ RETRY:
 		// at startup, retry assuming this is a transient error.  ensureDBPool
 		// guards all future calls in the event loop from a nil pool.
 		if err := a.ensureDBPool(); err != nil {
-			log.Error().Err(err).Msg("unable to initialize db connection pool, retrying")
-			loopImmediately = false
-			goto RETRY
+			if a.cfg.RetryInit {
+				log.Error().Err(err).Msg("unable to initialize db connection pool, retrying")
+				loopImmediately = false
+				goto RETRY
+			} else {
+				log.Error().Err(err).Msg("unable to initialize db connection pool, exiting")
+				break RETRY
+			}
 		}
 
 		dbState, err = a.dbState()

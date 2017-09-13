@@ -20,6 +20,7 @@
 
 [run]
 num-io-threads = 1500
+retry-db-init = false
 
 [circonus]
 #debug = false
