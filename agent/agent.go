@@ -45,11 +45,11 @@ type Agent struct {
 	shutdown    func()
 	shutdownCtx context.Context
 
-	pool *pgx.ConnPool
-
 	metrics *cgm.CirconusMetrics
 
 	pgStateLock sync.RWMutex
+	pool        *pgx.ConnPool
+	poolConfig  *config.DBPool
 	lastWALLog  string
 	// timelineID is the timeline ID from the last queryLastLog()
 	// operation. timelineID is protected by walLock.
@@ -119,6 +119,16 @@ func (a *Agent) Start() {
 
 	log.Debug().Msg("Starting " + buildtime.PROGNAME + " agent")
 
+	a.pgStateLock.Lock()
+	if a.pool != nil {
+		// In the event that the caller cycles between a Start()'ed and Stop()'ed
+		// agent, reset the DB connection pool.  The DB connection pool is stopped
+		// during Stop() but is not nil'ed out in order to let DB connections drain
+		// asynchronously after Stop() has been called.
+		a.pool = nil
+	}
+	a.pgStateLock.Unlock()
+
 	go a.startSignalHandler()
 
 	if viper.GetBool(config.KeyCirconusEnabled) {
@@ -141,6 +151,15 @@ RETRY:
 		if !loopImmediately {
 			d := viper.GetDuration(config.KeyPGPollInterval)
 			time.Sleep(d)
+		}
+
+		// If the connection pool is uninitialized or failed to acquire a connection
+		// at startup, retry assuming this is a transient error.  ensureDBPool
+		// guards all future calls in the event loop from a nil pool.
+		if err := a.ensureDBPool(); err != nil {
+			log.Error().Err(err).Msg("unable to initialize db connection pool, retrying")
+			loopImmediately = false
+			goto RETRY
 		}
 
 		dbState, err = a.dbState()
@@ -180,7 +199,19 @@ func (a *Agent) Stop() {
 	a.stopSignalHandler()
 	a.shutdown()
 	a.metrics.Flush()
-	a.pool.Close()
+
+	a.pgStateLock.Lock()
+	defer a.pgStateLock.Unlock()
+	if a.pool != nil {
+		a.pool.Close()
+
+		// NOTE(seanc): explicitly do not nil out the pool value because the
+		// connection pool does the right thing(tm) with regards to preventing new
+		// connections from being established.  Agent.Start() will reset the value
+		// to a nil value.
+		//a.pool = nil
+	}
+
 	log.Debug().Msg("Stopped " + buildtime.PROGNAME + " agent")
 }
 
