@@ -116,10 +116,6 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 					}
 
 					wc.metrics.RecordValue(config.MetricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
-
-					if lib.IsShuttingDown(wc.ctx) {
-						return
-					}
 				}
 			}
 		}(walWorker)
