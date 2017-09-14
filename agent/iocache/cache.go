@@ -87,10 +87,6 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 					}
 
 					ioc.metrics.RecordValue(config.MetricsSysPreadLatency, float64(time.Now().Sub(start)/time.Millisecond))
-
-					if lib.IsShuttingDown(ioc.ctx) {
-						return
-					}
 				}
 			}
 		}(ioWorker)
