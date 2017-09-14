@@ -100,6 +100,7 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 			for {
 				select {
 				case <-wc.ctx.Done():
+					return
 				case <-time.After(heartbeat):
 				case walFile, ok := <-walFiles:
 					if !ok {
@@ -171,9 +172,11 @@ func (wc *WALCache) ReadAhead() uint32 {
 	return wc.cfg.ReadAhead
 }
 
-// Wait blocks until the WALCache finishes shutting down its workers.
+// Wait blocks until the WALCache finishes shutting down its workers (including
+// the workers of its IOCache).
 func (wc *WALCache) Wait() {
 	wc.wg.Wait()
+	wc.ioCache.Wait()
 }
 
 // prefaultWALFile shells out to pg_xlogdump(1) and reads its input.  The input

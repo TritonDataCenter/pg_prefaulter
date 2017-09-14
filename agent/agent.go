@@ -168,6 +168,7 @@ RETRY:
 				goto RETRY
 			} else {
 				log.Error().Err(err).Msg("unable to initialize db connection pool, exiting")
+				a.shutdown()
 				break RETRY
 			}
 		}
