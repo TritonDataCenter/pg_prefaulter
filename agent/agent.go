@@ -134,7 +134,7 @@ func (a *Agent) Start() {
 	}
 	a.pgStateLock.Unlock()
 
-	go a.startSignalHandler()
+	go a.handleSignals()
 
 	if viper.GetBool(config.KeyCirconusEnabled) {
 		a.metrics.Start()
@@ -168,6 +168,7 @@ RETRY:
 				goto RETRY
 			} else {
 				log.Error().Err(err).Msg("unable to initialize db connection pool, exiting")
+				a.shutdown()
 				break RETRY
 			}
 		}
@@ -238,8 +239,8 @@ func (a *Agent) Wait() error {
 	return nil
 }
 
-// signalHandler runs the signal handler thread
-func (a *Agent) startSignalHandler() {
+// handleSignals runs the signal handler thread
+func (a *Agent) handleSignals() {
 	const stacktraceBufSize = 1 * units.MiB
 
 	// pre-allocate a buffer

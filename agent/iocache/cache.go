@@ -68,6 +68,7 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 			for {
 				select {
 				case <-ioc.ctx.Done():
+					return
 				case <-time.After(heartbeat):
 				case ioReq, ok := <-ioReqs:
 					if !ok {
@@ -126,4 +127,9 @@ func (ioc *IOCache) Purge() {
 
 	ioc.c.Purge()
 	ioc.fhCache.Purge()
+}
+
+// Wait blocks until the IOCache finishes shutting down its workers.
+func (ioc *IOCache) Wait() {
+	ioc.wg.Wait()
 }
