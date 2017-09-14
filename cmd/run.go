@@ -131,7 +131,7 @@ func init() {
 	{
 		const (
 			key          = config.KeyRetryDBInit
-			longName     = "retry-init"
+			longName     = "retry-db-init"
 			defaultValue = false
 			description  = `Retry connecting to the database during initialization`
 		)
