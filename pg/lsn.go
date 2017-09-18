@@ -25,8 +25,8 @@ import (
 // https://www.postgresql.org/docs/current/static/datatype-pg-lsn.html
 type LSN uint64
 
-// New creates a new LSN from a segment ID and offset
-func New(segNo HeapSegment, off Offset) LSN {
+// NewLSN creates a new LSN from a segment ID and offset
+func NewLSN(segNo HeapSegment, off Offset) LSN {
 	return LSN(uint64(segNo)<<32 | uint64(off))
 }
 
@@ -47,7 +47,7 @@ func ParseLSN(in string) (LSN, error) {
 		return InvalidLSN, errors.Wrap(err, "unable to decode the segment ID")
 	}
 
-	return New(HeapSegment(id), Offset(offset)), nil
+	return NewLSN(HeapSegment(id), Offset(offset)), nil
 }
 
 // ID returns the numeric ID of the WAL.
