@@ -1,68 +1,33 @@
+// Copyright © 2017 Joyent, Inc.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package pg
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
-	"github.com/alecthomas/units"
 	"github.com/pkg/errors"
 )
 
-type (
-	OID uint64
-
-	// HeapBlockNumber represents a given HeapBlockNumber inside of a segment
-	HeapBlockNumber uint64
-	HeapPageNumber  uint64
-)
-
-type (
-	LSN         uint64
-	HeapSegment uint32
-	Offset      uint32
-
-	TimelineID uint32
-)
-
-const (
-	// Value representing an invalid LSN (used in error conditions)
-	InvalidLSN = LSN(math.MaxUint64)
-
-	// WALPageSize == PostgreSQL's Page Size.  Page Size == BLKSZ WALPageSize
-	// defaults to 8KB.  The same value used in the WAL is used in the PostgreSQL
-	// Heap.
-	//
-	// TODO(seanc@): pull this data from `SHOW wal_block_size`.
-	WALPageSize = 8 * units.KiB
-
-	HeapPageSize = WALPageSize
-
-	// WALFileSize == PostgreSQL WAL File Size.
-	// WALFileSize defaults to 16MB
-	//
-	// TODO(seanc@): pull this value from `SHOW wal_segment_size`
-	WALFileSize = 16 * units.MiB
-
-	// HeapMaxSegmentSize is the max size of a single file in a relation.
-	//
-	// TODO(seanc@): pull this value from pg_controldata(1)'s "Blocks per segment
-	// of large relation" and multiply it by WALBlockSize
-	HeapMaxSegmentSize = 1 * units.GiB
-
-	WALFilesPerSegment uint64 = 0x100000000 / uint64(WALFileSize)
-)
+// LSN is a Go implementation of PostgreSQL's Log Sequence Number (LSN):
+// https://www.postgresql.org/docs/current/static/datatype-pg-lsn.html
+type LSN uint64
 
 // New creates a new LSN from a segment ID and offset
 func New(segNo HeapSegment, off Offset) LSN {
 	return LSN(uint64(segNo)<<32 | uint64(off))
-}
-
-// HeapSegmentPageNum returns the page number of a given page inside of a heap
-// segment.
-func HeapSegmentPageNum(block HeapBlockNumber) HeapPageNumber {
-	return HeapPageNumber(uint64(block) % uint64(HeapMaxSegmentSize/HeapPageSize))
 }
 
 // ParseLSN returns a parsed LSN
@@ -95,16 +60,6 @@ func (lsn LSN) ByteOffset() Offset {
 	return Offset(lsn)
 }
 
-// Segment returns the Segment number of the LSN.
-func (lsn LSN) SegmentNumber() HeapSegment {
-	return HeapSegment(uint64(lsn) / uint64(WALFileSize))
-}
-
-// SegmentNumber returns the segment number from a given block number.
-func SegmentNumber(block uint64) HeapSegment {
-	return HeapSegment(int64(block) / int64(HeapMaxSegmentSize/WALPageSize))
-}
-
 // String returns the string representation of an LSN.
 func (lsn LSN) String() string {
 	var segNo HeapSegment
@@ -112,6 +67,11 @@ func (lsn LSN) String() string {
 	segNo = HeapSegment(lsn >> 32)
 	off = Offset(lsn)
 	return fmt.Sprintf("%X/%X", segNo, off)
+}
+
+// Segment returns the Segment number of the LSN.
+func (lsn LSN) SegmentNumber() HeapSegment {
+	return HeapSegment(uint64(lsn) / uint64(WALFileSize))
 }
 
 // WALFileName returns the name of a WAL's filename.  The timeline number is
