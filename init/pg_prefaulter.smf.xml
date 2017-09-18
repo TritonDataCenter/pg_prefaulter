@@ -39,7 +39,7 @@
     <stability value='Evolving'/>
     <template>
       <common_name>
-        <loctext xml:lang='Go'>pg_prefaulter agent</loctext>
+        <loctext xml:lang='C'>pg_prefaulter agent</loctext>
       </common_name>
     </template>
   </service>
