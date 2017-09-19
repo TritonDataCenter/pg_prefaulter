@@ -119,11 +119,11 @@ func TestType(t *testing.T) {
 			// Test optional argument
 			switch test.timeline {
 			case 0:
-				if diff := pretty.Compare(test.filename, l.WALFileName()); diff != "" {
+				if diff := pretty.Compare(test.filename, l.WALFilename()); diff != "" {
 					st.Fatalf("%d: WALFileName diff: (-got +want)\n%s", n, diff)
 				}
 			default:
-				if diff := pretty.Compare(test.filename, l.WALFileName(test.timeline)); diff != "" {
+				if diff := pretty.Compare(test.filename, l.WALFilename(test.timeline)); diff != "" {
 					st.Fatalf("%d: WALFileName diff: (-got +want)\n%s", n, diff)
 				}
 			}

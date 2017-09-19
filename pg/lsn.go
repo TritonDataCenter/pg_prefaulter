@@ -74,9 +74,9 @@ func (lsn LSN) SegmentNumber() HeapSegment {
 	return HeapSegment(uint64(lsn) / uint64(WALFileSize))
 }
 
-// WALFileName returns the name of a WAL's filename.  The timeline number is
+// WALFilename returns the name of a WAL's filename.  The timeline number is
 // optional.  If the timeline is not specified, default to a timelineID of 1.
-func (lsn LSN) WALFileName(timelineID ...TimelineID) WALFilename {
+func (lsn LSN) WALFilename(timelineID ...TimelineID) WALFilename {
 	var tid TimelineID
 	switch len(timelineID) {
 	case 0:
