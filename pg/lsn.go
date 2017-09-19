@@ -76,7 +76,7 @@ func (lsn LSN) SegmentNumber() HeapSegment {
 
 // WALFileName returns the name of a WAL's filename.  The timeline number is
 // optional.  If the timeline is not specified, default to a timelineID of 1.
-func (lsn LSN) WALFileName(timelineID ...TimelineID) string {
+func (lsn LSN) WALFileName(timelineID ...TimelineID) WALFilename {
 	var tid TimelineID
 	switch len(timelineID) {
 	case 0:
@@ -87,7 +87,8 @@ func (lsn LSN) WALFileName(timelineID ...TimelineID) string {
 		panic("only one timelineID supported")
 	}
 
-	return fmt.Sprintf("%08X%08X%08X", tid,
+	walFilename := fmt.Sprintf("%08X%08X%08X", tid,
 		uint64(lsn.SegmentNumber())/WALFilesPerSegment,
 		uint64(lsn.SegmentNumber())%WALFilesPerSegment)
+	return WALFilename(walFilename)
 }

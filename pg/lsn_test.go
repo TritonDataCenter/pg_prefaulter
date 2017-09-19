@@ -41,10 +41,10 @@ func TestType(t *testing.T) {
 		out      string
 		num      uint64
 		timeline pg.TimelineID
-		filename string
-		id       uint32
-		offset   uint32
-		segment  uint32
+		filename pg.WALFilename
+		id       pg.HeapSegment
+		offset   pg.Offset
+		segment  pg.HeapSegment
 	}{
 		{
 			in:       "0/150E150",
