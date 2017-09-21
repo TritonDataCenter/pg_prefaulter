@@ -77,7 +77,7 @@ var runCmd = &cobra.Command{
 
 	RunE: func(cmd *cobra.Command, args []string) error {
 		log.Info().Int("pid", os.Getpid()).Msg("Starting " + buildtime.PROGNAME)
-		defer log.Info().Int("pid", os.Getpid()).Msg("Stopped " + buildtime.PROGNAME)
+		defer func() { log.Info().Int("pid", os.Getpid()).Msg("Stopped " + buildtime.PROGNAME) }()
 
 		cfg, err := config.NewDefault()
 		if err != nil {
