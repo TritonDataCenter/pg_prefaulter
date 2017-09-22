@@ -99,7 +99,110 @@ func TestConstants(t *testing.T) {
 	}
 }
 
-func TestType(t *testing.T) {
+func TestLSN_Readahead(t *testing.T) {
+	tests := []struct {
+		inLSN       string
+		timeline    pg.TimelineID
+		filename    pg.WALFilename
+		maxBytes    units.Base2Bytes
+		outWALFiles []pg.WALFilename
+	}{
+		{
+			inLSN:       "0/0",
+			timeline:    100,
+			filename:    "000000640000000000000000",
+			maxBytes:    0,
+			outWALFiles: []pg.WALFilename{},
+		},
+		{
+			inLSN:       "0/1",
+			timeline:    101,
+			filename:    "000000650000000000000000",
+			maxBytes:    pg.WALFileSize,
+			outWALFiles: []pg.WALFilename{"000000650000000000000000"},
+		},
+		{
+			inLSN:       "2/0",
+			timeline:    102,
+			filename:    "000000660000000200000000",
+			maxBytes:    pg.WALFileSize,
+			outWALFiles: []pg.WALFilename{"000000660000000200000000"},
+		},
+		{
+			inLSN:       "3/4",
+			timeline:    102,
+			filename:    "000000660000000300000000",
+			maxBytes:    pg.WALFileSize,
+			outWALFiles: []pg.WALFilename{"000000660000000300000000"},
+		},
+		{
+			inLSN:    "0/150E150",
+			timeline: 10,
+			filename: "0000000A0000000000000001",
+			maxBytes: pg.WALFileSize + 1,
+			outWALFiles: []pg.WALFilename{
+				"0000000A0000000000000001",
+				"0000000A0000000000000002",
+			},
+		},
+		{
+			inLSN:    "1/F50E150",
+			timeline: 11,
+			filename: "0000000B000000010000000F",
+			maxBytes: 3 * pg.WALFileSize,
+			outWALFiles: []pg.WALFilename{
+				"0000000B000000010000000F",
+				"0000000B0000000100000010",
+				"0000000B0000000100000011",
+			},
+		},
+		{
+			inLSN:    "2/150E150",
+			timeline: 12,
+			filename: "0000000C0000000200000001",
+			maxBytes: 2 * pg.WALFileSize,
+			outWALFiles: []pg.WALFilename{
+				"0000000C0000000200000001",
+				"0000000C0000000200000002",
+			},
+		},
+		{
+			inLSN:    "ff/150E150",
+			timeline: 13,
+			filename: "0000000D000000FF00000001",
+			maxBytes: 4 * pg.WALFileSize,
+			outWALFiles: []pg.WALFilename{
+				"0000000D000000FF00000001",
+				"0000000D000000FF00000002",
+				"0000000D000000FF00000003",
+				"0000000D000000FF00000004",
+			},
+		},
+	}
+
+	for n, test := range tests {
+		test := test
+		t.Run("", func(st *testing.T) {
+			n := n
+			st.Parallel()
+
+			l, err := pg.ParseLSN(test.inLSN)
+			if err != nil {
+				st.Fatalf("bad: %v", err)
+			}
+
+			if diff := pretty.Compare(test.filename, l.WALFilename(test.timeline)); diff != "" {
+				st.Fatalf("%d: WALFilename diff: (-got +want)\n%s", n, diff)
+			}
+
+			if diff := pretty.Compare(test.outWALFiles, l.Readahead(test.timeline, test.maxBytes)); diff != "" {
+				st.Fatalf("%d: Readahead diff: (-got +want)\n%s", n, diff)
+			}
+		})
+	}
+}
+
+func TestLSN_Type(t *testing.T) {
 	tests := []struct {
 		in       string
 		out      string
@@ -153,6 +256,7 @@ func TestType(t *testing.T) {
 	for n, test := range tests {
 		test := test
 		t.Run("", func(st *testing.T) {
+			n := n
 			st.Parallel()
 
 			l, err := pg.ParseLSN(test.in)

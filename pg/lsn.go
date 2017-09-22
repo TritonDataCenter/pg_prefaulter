@@ -15,6 +15,7 @@ package pg
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -64,6 +65,21 @@ func (lsn LSN) ID() HeapSegment {
 // Offset returns the byte offset inside of a WAL segment.
 func (lsn LSN) ByteOffset() Offset {
 	return Offset(lsn)
+}
+
+// Readahead returns all of the anticipated WAL filenames that will be present
+// in the future based on the lsn and the readahead.
+func (lsn LSN) Readahead(timelineID TimelineID, maxBytes units.Base2Bytes) []WALFilename {
+	// Always read in at least the current WAL file
+	walFiles := make([]WALFilename, 0, int(math.Ceil(float64(maxBytes)/float64(WALFileSize))))
+
+	cur := lsn
+	for remainingBytes := maxBytes; remainingBytes > 0; remainingBytes -= WALFileSize {
+		walFiles = append(walFiles, cur.WALFilename(timelineID))
+		cur = cur.AddBytes(WALFileSize)
+	}
+
+	return walFiles
 }
 
 // String returns the string representation of an LSN.
