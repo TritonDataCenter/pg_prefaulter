@@ -142,14 +142,14 @@ func init() {
 
 	{
 		const (
-			key          = config.KeyWALReadAhead
-			longName     = "wal-readahead"
+			key          = config.KeyWALReadahead
+			longName     = "wal-readahead-bytes"
 			shortName    = "n"
-			defaultValue = 4
-			description  = "Number of WAL entries to perform read-ahead into"
+			defaultValue = "32MiB"
+			description  = "Maximum number of bytes to pre-fault"
 		)
 
-		runCmd.Flags().UintP(longName, shortName, defaultValue, description)
+		runCmd.Flags().StringP(longName, shortName, defaultValue, description)
 		viper.BindPFlag(key, runCmd.Flags().Lookup(longName))
 		viper.SetDefault(key, defaultValue)
 	}

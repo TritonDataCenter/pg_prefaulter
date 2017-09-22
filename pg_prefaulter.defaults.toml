@@ -12,7 +12,7 @@
 #user = "postgres"
 
 [postgresql.wal]
-#read-ahead = 4
+#readahead-bytes = "32MiB"
 
 [postgresql.xlog]
 #mode = "pg"

@@ -34,7 +34,7 @@ const (
 	KeyPGPort         = "postgresql.port"
 	KeyPGUser         = "postgresql.user"
 
-	KeyWALReadAhead = "postgresql.wal.read-ahead"
+	KeyWALReadahead = "postgresql.wal.readahead-bytes"
 	KeyWALThreads   = "postgresql.wal.threads"
 
 	KeyXLogMode = "postgresql.xlog.mode"
