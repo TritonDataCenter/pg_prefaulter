@@ -16,9 +16,73 @@ package pg_test
 import (
 	"testing"
 
+	"github.com/alecthomas/units"
 	"github.com/joyent/pg_prefaulter/pg"
 	"github.com/kylelemons/godebug/pretty"
 )
+
+// Test adding bytes values to an LSN
+func TestAddBytes(t *testing.T) {
+	tests := []struct {
+		inLSN       string
+		addBytes    units.Base2Bytes
+		equalLSN    string
+		timeline    pg.TimelineID
+		outFilename pg.WALFilename
+	}{
+		{
+			inLSN:       "0/0",
+			addBytes:    0,
+			equalLSN:    "0/0",
+			timeline:    100,
+			outFilename: "000000640000000000000000",
+		},
+		{
+			inLSN:       "0/0",
+			addBytes:    pg.WALFileSize,
+			equalLSN:    "0/1",
+			timeline:    101,
+			outFilename: "000000650000000000000001",
+		},
+		{
+			inLSN:       "FF/FF",
+			addBytes:    2*pg.WALFileSize + 1,
+			equalLSN:    "0/1",
+			timeline:    102,
+			outFilename: "00000066000000FF00000002",
+		},
+	}
+
+	if diff := pretty.Compare(pg.WALPageSize, 8192); diff != "" {
+		t.Fatalf("WALPageSize diff: (-got +want)\n%s", diff)
+	}
+
+	if diff := pretty.Compare(pg.WALFileSize, 16777216); diff != "" {
+		t.Fatalf("WALSegmentSize diff: (-got +want)\n%s", diff)
+	}
+
+	if diff := pretty.Compare(pg.WALFilesPerSegment, 256); diff != "" {
+		t.Fatalf("WALSegmentsPerXLogId diff: (-got +want)\n%s", diff)
+	}
+
+	for n, test := range tests {
+		test := test
+		t.Run("", func(st *testing.T) {
+			n := n
+			st.Parallel()
+
+			l, err := pg.ParseLSN(test.inLSN)
+			if err != nil {
+				st.Fatalf("bad: %v", err)
+			}
+
+			o := l.AddBytes(test.addBytes)
+			if diff := pretty.Compare(test.outFilename, o.WALFilename(test.timeline)); diff != "" {
+				st.Fatalf("%d: AddBytes diff: (-got +want)\n%s", n, diff)
+			}
+		})
+	}
+}
 
 // Precompute the expected results from constants
 func TestConstants(t *testing.T) {

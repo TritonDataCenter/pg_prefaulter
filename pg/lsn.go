@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/alecthomas/units"
 	"github.com/pkg/errors"
 )
 
@@ -48,6 +49,11 @@ func ParseLSN(in string) (LSN, error) {
 	}
 
 	return NewLSN(HeapSegment(id), Offset(offset)), nil
+}
+
+// AddBytes adds bytes to a given LSN
+func (lsn LSN) AddBytes(n units.Base2Bytes) LSN {
+	return NewLSN(lsn.ID(), lsn.ByteOffset()+Offset(n))
 }
 
 // ID returns the numeric ID of the WAL.
