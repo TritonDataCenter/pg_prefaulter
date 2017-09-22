@@ -21,6 +21,69 @@ import (
 	"github.com/kylelemons/godebug/pretty"
 )
 
+func TestLSN_Cmp(t *testing.T) {
+	tests := []struct {
+		x   string
+		y   string
+		ret int
+	}{
+		// Test bytes
+		{
+			x:   "1/0",
+			y:   "1/0",
+			ret: 0,
+		},
+		{
+			x:   "1/0",
+			y:   "1/1",
+			ret: -1,
+		},
+		{
+			x:   "1/1",
+			y:   "1/0",
+			ret: 1,
+		},
+		// Test segment IDs
+		{
+			x:   "FA/0",
+			y:   "FA/0",
+			ret: 0,
+		},
+		{
+			x:   "FB/0",
+			y:   "FC/0",
+			ret: -1,
+		},
+		{
+			x:   "FD/0",
+			y:   "F8/0",
+			ret: 1,
+		},
+	}
+
+	for n, test := range tests {
+		test := test
+		t.Run("", func(st *testing.T) {
+			n := n
+			st.Parallel()
+
+			x, err := pg.ParseLSN(test.x)
+			if err != nil {
+				st.Fatalf("bad: %v", err)
+			}
+
+			y, err := pg.ParseLSN(test.y)
+			if err != nil {
+				st.Fatalf("bad: %v", err)
+			}
+
+			if diff := pretty.Compare(test.ret, pg.LSNCmp(x, y)); diff != "" {
+				st.Fatalf("%d: LSNCmp diff: (-got +want)\n%s", n, diff)
+			}
+		})
+	}
+}
+
 // Test adding bytes values to an LSN
 func TestAddBytes(t *testing.T) {
 	tests := []struct {

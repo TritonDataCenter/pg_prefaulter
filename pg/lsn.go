@@ -32,6 +32,28 @@ func NewLSN(segNo HeapSegment, off Offset) LSN {
 	return LSN(uint64(segNo)<<32 | uint64(off))
 }
 
+// LSNCmp compares x and y and returns:
+//
+//
+//   -1 if x <  y
+//    0 if x == y
+//   +1 if x >  y
+func LSNCmp(x, y LSN) int {
+	xInt := uint64(x)
+	yInt := uint64(y)
+
+	switch {
+	case xInt < yInt:
+		return -1
+	case xInt == yInt:
+		return 0
+	case xInt > yInt:
+		return 1
+	default:
+		panic(fmt.Sprintf("cmp fail: %+q/%q", x, y))
+	}
+}
+
 // ParseLSN returns a parsed LSN
 func ParseLSN(in string) (LSN, error) {
 	parts := strings.Split(in, "/")
