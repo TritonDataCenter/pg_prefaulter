@@ -74,6 +74,30 @@ func ParseLSN(in string) (LSN, error) {
 	return NewLSN(HeapSegment(id), Offset(offset)), nil
 }
 
+// ParseWalfile returns a parsed LSN from a given WALFilename
+func ParseWalfile(in WALFilename) (TimelineID, LSN, error) {
+	if len(in) != 24 {
+		return InvalidTimelineID, InvalidLSN, fmt.Errorf("WAL Filename incorrect: %+q", in)
+	}
+
+	timelineID, err := strconv.ParseUint(string(in)[:8], 16, 64)
+	if err != nil {
+		return InvalidTimelineID, InvalidLSN, errors.Wrap(err, "unable to decode the timeline ID")
+	}
+
+	segmentID, err := strconv.ParseUint(string(in)[8:16], 16, 64)
+	if err != nil {
+		return InvalidTimelineID, InvalidLSN, errors.Wrap(err, "unable to decode the segment ID")
+	}
+
+	offset, err := strconv.ParseUint(string(in)[16:24], 16, 64)
+	if err != nil {
+		return InvalidTimelineID, InvalidLSN, errors.Wrap(err, "unable to decode the byte offset")
+	}
+
+	return TimelineID(timelineID), NewLSN(HeapSegment(segmentID), Offset(offset)), nil
+}
+
 // AddBytes adds bytes to a given LSN
 func (lsn LSN) AddBytes(n units.Base2Bytes) LSN {
 	return NewLSN(lsn.ID(), lsn.ByteOffset()+Offset(n))

@@ -147,6 +147,80 @@ func TestLSN_AddBytes(t *testing.T) {
 	}
 }
 
+func TestLSN_ParseWALFilename(t *testing.T) {
+	tests := []struct {
+		lsn      string
+		timeline pg.TimelineID
+		filename pg.WALFilename
+	}{
+		{
+			lsn:      "0/0",
+			timeline: 100,
+			filename: "000000640000000000000000",
+		},
+		{
+			lsn:      "0/0",
+			timeline: 101,
+			filename: "000000650000000000000000",
+		},
+		{
+			lsn:      "2/0",
+			timeline: 102,
+			filename: "000000660000000200000000",
+		},
+		{
+			lsn:      "3/0",
+			timeline: 102,
+			filename: "000000660000000300000000",
+		},
+		{
+			lsn:      "0/0",
+			timeline: 10,
+			filename: "0000000A0000000000000000",
+		},
+		{
+			lsn:      "1/0",
+			timeline: 11,
+			filename: "0000000B0000000100000000",
+		},
+		{
+			lsn:      "2/0",
+			timeline: 12,
+			filename: "0000000C0000000200000000",
+		},
+		{
+			lsn:      "FF/0",
+			timeline: 13,
+			filename: "0000000D000000FF00000000",
+		},
+	}
+
+	for n, test := range tests {
+		test := test
+		t.Run("", func(st *testing.T) {
+			n := n
+			st.Parallel()
+
+			tid, lsn, err := pg.ParseWalfile(test.filename)
+			if err != nil {
+				st.Fatalf("bad: %v", err)
+			}
+
+			if diff := pretty.Compare(test.timeline, tid); diff != "" {
+				st.Fatalf("%d: ParseWalfile TID diff: (-got +want)\n%s", n, diff)
+			}
+
+			if diff := pretty.Compare(test.filename, lsn.WALFilename(tid)); diff != "" {
+				st.Fatalf("%d: ParseWalfile WAL Filename diff: (-got +want)\n%s", n, diff)
+			}
+
+			if diff := pretty.Compare(test.lsn, lsn.String()); diff != "" {
+				st.Errorf("%d: ParseWalfile LSN round trip diff: (-got +want)\n%s", n, diff)
+			}
+		})
+	}
+}
+
 func TestLSN_Readahead(t *testing.T) {
 	tests := []struct {
 		inLSN       string
