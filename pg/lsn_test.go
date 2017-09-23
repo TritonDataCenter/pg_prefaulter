@@ -116,18 +116,6 @@ func TestLSN_AddBytes(t *testing.T) {
 		},
 	}
 
-	if diff := pretty.Compare(pg.WALPageSize, 8192); diff != "" {
-		t.Fatalf("WALPageSize diff: (-got +want)\n%s", diff)
-	}
-
-	if diff := pretty.Compare(pg.WALFileSize, 16777216); diff != "" {
-		t.Fatalf("WALSegmentSize diff: (-got +want)\n%s", diff)
-	}
-
-	if diff := pretty.Compare(pg.WALFilesPerSegment, 256); diff != "" {
-		t.Fatalf("WALSegmentsPerXLogId diff: (-got +want)\n%s", diff)
-	}
-
 	for n, test := range tests {
 		test := test
 		t.Run("", func(st *testing.T) {
