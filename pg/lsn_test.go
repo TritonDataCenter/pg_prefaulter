@@ -101,18 +101,25 @@ func TestLSN_AddBytes(t *testing.T) {
 			outFilename: "000000640000000000000000",
 		},
 		{
-			inLSN:       "0/0",
+			inLSN:       "1/0",
 			addBytes:    pg.WALFileSize,
-			equalLSN:    "0/1",
+			equalLSN:    "1/1000000",
 			timeline:    101,
-			outFilename: "000000650000000000000001",
+			outFilename: "000000650000000100000001",
+		},
+		{
+			inLSN:       "2/1",
+			addBytes:    2 * pg.WALFileSize,
+			equalLSN:    "2/2000001",
+			timeline:    102,
+			outFilename: "000000660000000200000002",
 		},
 		{
 			inLSN:       "FF/FF",
-			addBytes:    2*pg.WALFileSize + 1,
-			equalLSN:    "0/1",
-			timeline:    102,
-			outFilename: "00000066000000FF00000002",
+			addBytes:    3*pg.WALFileSize + 2,
+			equalLSN:    "FF/3000101",
+			timeline:    103,
+			outFilename: "00000067000000FF00000003",
 		},
 	}
 
@@ -122,12 +129,16 @@ func TestLSN_AddBytes(t *testing.T) {
 			n := n
 			st.Parallel()
 
-			l, err := pg.ParseLSN(test.inLSN)
+			lsn, err := pg.ParseLSN(test.inLSN)
 			if err != nil {
 				st.Fatalf("bad: %v", err)
 			}
 
-			o := l.AddBytes(test.addBytes)
+			o := lsn.AddBytes(test.addBytes)
+			if diff := pretty.Compare(test.equalLSN, o.String()); diff != "" {
+				st.Errorf("%d: add result diff: (-got +want)\n%s", n, diff)
+			}
+
 			if diff := pretty.Compare(test.outFilename, o.WALFilename(test.timeline)); diff != "" {
 				st.Errorf("%d: AddBytes diff: (-got +want)\n%s", n, diff)
 			}
