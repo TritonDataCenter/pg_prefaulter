@@ -54,6 +54,17 @@ func LSNCmp(x, y LSN) int {
 	}
 }
 
+// MustParseLSN returns a parsed LSN.  If the LSN input fails to parse,
+// MustParseLSN will panic.
+func MustParseLSN(inLSN string) LSN {
+	lsn, err := ParseLSN(inLSN)
+	if err != nil {
+		panic(fmt.Sprintf("bad LSN input: %+q", inLSN))
+	}
+
+	return lsn
+}
+
 // ParseLSN returns a parsed LSN
 func ParseLSN(in string) (LSN, error) {
 	parts := strings.Split(in, "/")
