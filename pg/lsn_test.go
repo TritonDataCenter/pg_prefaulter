@@ -223,42 +223,42 @@ func TestLSN_ParseWALFilename(t *testing.T) {
 
 func TestLSN_Readahead(t *testing.T) {
 	tests := []struct {
-		inLSN       string
+		lsn         string
 		timeline    pg.TimelineID
 		filename    pg.WALFilename
 		maxBytes    units.Base2Bytes
 		outWALFiles []pg.WALFilename
 	}{
 		{
-			inLSN:       "0/0",
+			lsn:         "0/0",
 			timeline:    100,
 			filename:    "000000640000000000000000",
 			maxBytes:    0,
 			outWALFiles: []pg.WALFilename{},
 		},
 		{
-			inLSN:       "0/1",
+			lsn:         "0/1",
 			timeline:    101,
 			filename:    "000000650000000000000000",
 			maxBytes:    pg.WALFileSize,
 			outWALFiles: []pg.WALFilename{"000000650000000000000000"},
 		},
 		{
-			inLSN:       "2/0",
+			lsn:         "2/0",
 			timeline:    102,
 			filename:    "000000660000000200000000",
 			maxBytes:    pg.WALFileSize,
 			outWALFiles: []pg.WALFilename{"000000660000000200000000"},
 		},
 		{
-			inLSN:       "3/4",
+			lsn:         "3/4",
 			timeline:    102,
 			filename:    "000000660000000300000000",
 			maxBytes:    pg.WALFileSize,
 			outWALFiles: []pg.WALFilename{"000000660000000300000000"},
 		},
 		{
-			inLSN:    "0/150E150",
+			lsn:      "0/150E150",
 			timeline: 10,
 			filename: "0000000A0000000000000001",
 			maxBytes: pg.WALFileSize + 1,
@@ -268,7 +268,7 @@ func TestLSN_Readahead(t *testing.T) {
 			},
 		},
 		{
-			inLSN:    "1/F50E150",
+			lsn:      "1/F50E150",
 			timeline: 11,
 			filename: "0000000B000000010000000F",
 			maxBytes: 3 * pg.WALFileSize,
@@ -279,7 +279,7 @@ func TestLSN_Readahead(t *testing.T) {
 			},
 		},
 		{
-			inLSN:    "2/150E150",
+			lsn:      "2/150E150",
 			timeline: 12,
 			filename: "0000000C0000000200000001",
 			maxBytes: 2 * pg.WALFileSize,
@@ -289,7 +289,7 @@ func TestLSN_Readahead(t *testing.T) {
 			},
 		},
 		{
-			inLSN:    "ff/150E150",
+			lsn:      "ff/150E150",
 			timeline: 13,
 			filename: "0000000D000000FF00000001",
 			maxBytes: 4 * pg.WALFileSize,
@@ -308,16 +308,16 @@ func TestLSN_Readahead(t *testing.T) {
 			n := n
 			st.Parallel()
 
-			l, err := pg.ParseLSN(test.inLSN)
+			lsn, err := pg.ParseLSN(test.lsn)
 			if err != nil {
 				st.Fatalf("bad: %v", err)
 			}
 
-			if diff := pretty.Compare(test.filename, l.WALFilename(test.timeline)); diff != "" {
+			if diff := pretty.Compare(test.filename, lsn.WALFilename(test.timeline)); diff != "" {
 				st.Fatalf("%d: WALFilename diff: (-got +want)\n%s", n, diff)
 			}
 
-			if diff := pretty.Compare(test.outWALFiles, l.Readahead(test.timeline, test.maxBytes)); diff != "" {
+			if diff := pretty.Compare(test.outWALFiles, lsn.Readahead(test.timeline, test.maxBytes)); diff != "" {
 				st.Fatalf("%d: Readahead diff: (-got +want)\n%s", n, diff)
 			}
 		})
@@ -381,39 +381,39 @@ func TestLSN_Type(t *testing.T) {
 			n := n
 			st.Parallel()
 
-			l, err := pg.ParseLSN(test.in)
+			lsn, err := pg.ParseLSN(test.in)
 			if err != nil {
 				st.Fatalf("bad: %v", err)
 			}
 
-			if diff := pretty.Compare(test.num, uint64(l)); diff != "" {
+			if diff := pretty.Compare(test.num, uint64(lsn)); diff != "" {
 				st.Fatalf("%d: LSN diff: (-got +want)\n%s", n, diff)
 			}
 
-			if diff := pretty.Compare(test.id, l.ID()); diff != "" {
+			if diff := pretty.Compare(test.id, lsn.ID()); diff != "" {
 				st.Fatalf("%d: ID diff: (-got +want)\n%s", n, diff)
 			}
 
-			if diff := pretty.Compare(test.offset, l.ByteOffset()); diff != "" {
+			if diff := pretty.Compare(test.offset, lsn.ByteOffset()); diff != "" {
 				st.Fatalf("%d: Offset diff: (-got +want)\n%s", n, diff)
 			}
 
-			if diff := pretty.Compare(test.segment, l.SegmentNumber()); diff != "" {
+			if diff := pretty.Compare(test.segment, lsn.SegmentNumber()); diff != "" {
 				st.Fatalf("%d: Segment diff: (-got +want)\n%s", n, diff)
 			}
 
-			if diff := pretty.Compare(test.out, l.String()); diff != "" {
+			if diff := pretty.Compare(test.out, lsn.String()); diff != "" {
 				st.Fatalf("%d: String() diff: (-got +want)\n%s", n, diff)
 			}
 
 			// Test optional argument
 			switch test.timeline {
 			case 0:
-				if diff := pretty.Compare(test.filename, l.WALFilename()); diff != "" {
+				if diff := pretty.Compare(test.filename, lsn.WALFilename()); diff != "" {
 					st.Fatalf("%d: WALFileName diff: (-got +want)\n%s", n, diff)
 				}
 			default:
-				if diff := pretty.Compare(test.filename, l.WALFilename(test.timeline)); diff != "" {
+				if diff := pretty.Compare(test.filename, lsn.WALFilename(test.timeline)); diff != "" {
 					st.Fatalf("%d: WALFileName diff: (-got +want)\n%s", n, diff)
 				}
 			}
