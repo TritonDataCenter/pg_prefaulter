@@ -78,7 +78,7 @@ func TestLSN_Cmp(t *testing.T) {
 			}
 
 			if diff := pretty.Compare(test.ret, pg.LSNCmp(x, y)); diff != "" {
-				st.Fatalf("%d: LSNCmp diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: LSNCmp diff: (-got +want)\n%s", n, diff)
 			}
 		})
 	}
@@ -141,7 +141,7 @@ func TestLSN_AddBytes(t *testing.T) {
 
 			o := l.AddBytes(test.addBytes)
 			if diff := pretty.Compare(test.outFilename, o.WALFilename(test.timeline)); diff != "" {
-				st.Fatalf("%d: AddBytes diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: AddBytes diff: (-got +want)\n%s", n, diff)
 			}
 		})
 	}
@@ -207,15 +207,15 @@ func TestLSN_ParseWALFilename(t *testing.T) {
 			}
 
 			if diff := pretty.Compare(test.timeline, tid); diff != "" {
-				st.Fatalf("%d: ParseWalfile TID diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: ParseWalfile TID diff: (-got +want)\n%s", n, diff)
 			}
 
 			if diff := pretty.Compare(test.filename, lsn.WALFilename(tid)); diff != "" {
-				st.Fatalf("%d: ParseWalfile WAL Filename diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: ParseWalfile LSN round trip diff: (-got +want)\n%s", n, diff)
 			}
 
 			if diff := pretty.Compare(test.lsn, lsn.String()); diff != "" {
-				st.Errorf("%d: ParseWalfile LSN round trip diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: ParseWalfile WAL Filename diff: (-got +want)\n%s", n, diff)
 			}
 		})
 	}
@@ -314,11 +314,11 @@ func TestLSN_Readahead(t *testing.T) {
 			}
 
 			if diff := pretty.Compare(test.filename, lsn.WALFilename(test.timeline)); diff != "" {
-				st.Fatalf("%d: WALFilename diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: WALFilename diff: (-got +want)\n%s", n, diff)
 			}
 
 			if diff := pretty.Compare(test.outWALFiles, lsn.Readahead(test.timeline, test.maxBytes)); diff != "" {
-				st.Fatalf("%d: Readahead diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: Readahead diff: (-got +want)\n%s", n, diff)
 			}
 		})
 	}
@@ -387,34 +387,34 @@ func TestLSN_Type(t *testing.T) {
 			}
 
 			if diff := pretty.Compare(test.num, uint64(lsn)); diff != "" {
-				st.Fatalf("%d: LSN diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: LSN diff: (-got +want)\n%s", n, diff)
 			}
 
 			if diff := pretty.Compare(test.id, lsn.ID()); diff != "" {
-				st.Fatalf("%d: ID diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: ID diff: (-got +want)\n%s", n, diff)
 			}
 
 			if diff := pretty.Compare(test.offset, lsn.ByteOffset()); diff != "" {
-				st.Fatalf("%d: Offset diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: Offset diff: (-got +want)\n%s", n, diff)
 			}
 
 			if diff := pretty.Compare(test.segment, lsn.SegmentNumber()); diff != "" {
-				st.Fatalf("%d: Segment diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: Segment diff: (-got +want)\n%s", n, diff)
 			}
 
 			if diff := pretty.Compare(test.out, lsn.String()); diff != "" {
-				st.Fatalf("%d: String() diff: (-got +want)\n%s", n, diff)
+				st.Errorf("%d: String() diff: (-got +want)\n%s", n, diff)
 			}
 
 			// Test optional argument
 			switch test.timeline {
 			case 0:
 				if diff := pretty.Compare(test.filename, lsn.WALFilename()); diff != "" {
-					st.Fatalf("%d: WALFileName diff: (-got +want)\n%s", n, diff)
+					st.Errorf("%d: WALFileName diff: (-got +want)\n%s", n, diff)
 				}
 			default:
 				if diff := pretty.Compare(test.filename, lsn.WALFilename(test.timeline)); diff != "" {
-					st.Fatalf("%d: WALFileName diff: (-got +want)\n%s", n, diff)
+					st.Errorf("%d: WALFileName diff: (-got +want)\n%s", n, diff)
 				}
 			}
 		})
