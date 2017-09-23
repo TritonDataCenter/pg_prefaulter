@@ -147,50 +147,52 @@ func TestLSN_AddBytes(t *testing.T) {
 }
 
 func TestLSN_ParseWALFilename(t *testing.T) {
+	// NOTE(seanc@): All outLSN values have a 0 byte offset in order to be able to
+	// roundtrip the LSN to a WAL filename.
 	tests := []struct {
-		lsn      string
-		timeline pg.TimelineID
-		filename pg.WALFilename
+		inFilename    pg.WALFilename
+		outLSN        string
+		outTimelineID pg.TimelineID
 	}{
 		{
-			lsn:      "0/0",
-			timeline: 100,
-			filename: "000000640000000000000000",
+			inFilename:    "000000640000000000000000",
+			outTimelineID: 100,
+			outLSN:        "0/0",
 		},
 		{
-			lsn:      "0/0",
-			timeline: 101,
-			filename: "000000650000000000000000",
+			inFilename:    "000000650000000000000000",
+			outTimelineID: 101,
+			outLSN:        "0/0",
 		},
 		{
-			lsn:      "2/0",
-			timeline: 102,
-			filename: "000000660000000200000000",
+			inFilename:    "000000660000000200000000",
+			outTimelineID: 102,
+			outLSN:        "2/0",
 		},
 		{
-			lsn:      "3/0",
-			timeline: 102,
-			filename: "000000660000000300000000",
+			inFilename:    "000000660000000300000000",
+			outTimelineID: 102,
+			outLSN:        "3/0",
 		},
 		{
-			lsn:      "0/0",
-			timeline: 10,
-			filename: "0000000A0000000000000000",
+			inFilename:    "0000000A0000000000000000",
+			outTimelineID: 10,
+			outLSN:        "0/0",
 		},
 		{
-			lsn:      "1/0",
-			timeline: 11,
-			filename: "0000000B0000000100000000",
+			inFilename:    "0000000B0000000100000000",
+			outTimelineID: 11,
+			outLSN:        "1/0",
 		},
 		{
-			lsn:      "2/0",
-			timeline: 12,
-			filename: "0000000C0000000200000000",
+			inFilename:    "0000000C00000002000000FF",
+			outTimelineID: 12,
+			outLSN:        "2/FF",
 		},
 		{
-			lsn:      "FF/0",
-			timeline: 13,
-			filename: "0000000D000000FF00000000",
+			inFilename:    "0000000D0000FF00FFFFFFFF",
+			outTimelineID: 13,
+			outLSN:        "FF00/FFFFFFFF",
 		},
 	}
 
@@ -200,20 +202,20 @@ func TestLSN_ParseWALFilename(t *testing.T) {
 			n := n
 			st.Parallel()
 
-			tid, lsn, err := pg.ParseWalfile(test.filename)
+			tid, lsn, err := pg.ParseWalfile(test.inFilename)
 			if err != nil {
 				st.Fatalf("bad: %v", err)
 			}
 
-			if diff := pretty.Compare(test.timeline, tid); diff != "" {
+			if diff := pretty.Compare(test.outTimelineID, tid); diff != "" {
 				st.Errorf("%d: ParseWalfile TID diff: (-got +want)\n%s", n, diff)
 			}
 
-			if diff := pretty.Compare(test.filename, lsn.WALFilename(tid)); diff != "" {
+			if diff := pretty.Compare(test.outLSN, lsn.String()); diff != "" {
 				st.Errorf("%d: ParseWalfile LSN round trip diff: (-got +want)\n%s", n, diff)
 			}
 
-			if diff := pretty.Compare(test.lsn, lsn.String()); diff != "" {
+			if diff := pretty.Compare(test.inFilename, lsn.WALFilename(tid)); diff != "" {
 				st.Errorf("%d: ParseWalfile WAL Filename diff: (-got +want)\n%s", n, diff)
 			}
 		})
