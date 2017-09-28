@@ -29,7 +29,7 @@ type _Key struct {
 	tablespace pg.OID
 	database   pg.OID
 	relation   pg.OID
-	segment    pg.HeapSegment
+	segment    pg.HeapSegmentNumber
 }
 
 func _NewKey(ioCacheKey structs.IOCacheKey) _Key {
@@ -37,7 +37,7 @@ func _NewKey(ioCacheKey structs.IOCacheKey) _Key {
 		tablespace: ioCacheKey.Tablespace,
 		database:   ioCacheKey.Database,
 		relation:   ioCacheKey.Relation,
-		segment:    pg.SegmentNumber(uint64(ioCacheKey.Block)),
+		segment:    ioCacheKey.Block.SegmentNumber(),
 	}
 }
 

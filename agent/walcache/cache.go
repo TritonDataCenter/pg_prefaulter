@@ -90,7 +90,7 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 		panic(fmt.Sprintf("unsupported WALConfig.mode: %v", cfg.WALCacheConfig.Mode))
 	}
 
-	walWorkers := int(math.Ceil(float64(wc.cfg.ReadaheadBytes) / float64(pg.WALFileSize)))
+	walWorkers := int(math.Ceil(float64(wc.cfg.ReadaheadBytes) / float64(pg.WALSegmentSize)))
 	walFilePrefaultWorkQueue := make(chan pg.WALFilename)
 	for walWorker := 0; walWorker < walWorkers; walWorker++ {
 		wc.wg.Add(1)
@@ -168,8 +168,8 @@ func (wc *WALCache) Purge() {
 	wc.ioCache.Purge()
 }
 
-// Readahead returns the number of WAL files to read ahead of PostgreSQL.
-func (wc *WALCache) Readahead() units.Base2Bytes {
+// ReadaheadBytes returns the number of WAL files to read ahead of PostgreSQL.
+func (wc *WALCache) ReadaheadBytes() units.Base2Bytes {
 	return wc.cfg.ReadaheadBytes
 }
 
@@ -190,7 +190,7 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	walFileAbs := path.Join(wc.cfg.PGDataPath, "pg_xlog", string(walFile))
 	_, err = os.Stat(walFileAbs)
 	if err != nil {
-		log.Debug().Err(err).Msg("stat")
+		log.Debug().Err(err).Str("walfile", string(walFile)).Msg("stat")
 		return errors.Wrap(err, "WAL file does not exist")
 	}
 

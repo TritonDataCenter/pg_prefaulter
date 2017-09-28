@@ -11,22 +11,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package agent
+package pg_test
 
-import "github.com/pkg/errors"
+import (
+	"testing"
 
-// runPrimary is executed when talking to a writable database.
-func (a *Agent) runPrimary() (loopImmediately bool, err error) {
-	// Connect to the primary and see what the lag is in bytes between the primary
-	// and its connected followers.  Report out a histogram of lag.
+	"github.com/joyent/pg_prefaulter/pg"
+	"github.com/kylelemons/godebug/pretty"
+)
 
-	if _, err = a.queryLag(_QueryLagPrimary); err != nil {
-		return false, errors.Wrap(err, "unable to query primary lag")
+// Precompute the expected results from constants
+func TestWAL_Constants(t *testing.T) {
+	if diff := pretty.Compare(pg.WALPageSize, 8192); diff != "" {
+		t.Fatalf("WALPageSize diff: (-got +want)\n%s", diff)
 	}
 
-	if _, err = a.queryLastLog(); err != nil {
-		return false, errors.Wrap(err, "unable to query last WAL lag")
+	if diff := pretty.Compare(pg.WALSegmentSize, 16777216); diff != "" {
+		t.Fatalf("WALSegmentSize diff: (-got +want)\n%s", diff)
 	}
 
-	return false, nil
+	if diff := pretty.Compare(pg.WALSegmentsPerWALID, 256); diff != "" {
+		t.Fatalf("WALSegmentsPerWALID diff: (-got +want)\n%s", diff)
+	}
 }

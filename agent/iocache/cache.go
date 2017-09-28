@@ -56,7 +56,7 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 		fhCache: fhc,
 	}
 
-	ioReqs := make(chan structs.IOCacheKey)
+	ioWorkQueue := make(chan structs.IOCacheKey)
 	for ioWorker := uint(0); ioWorker < ioc.cfg.MaxConcurrentIOs; ioWorker++ {
 		ioc.wg.Add(1)
 		go func(threadID uint) {
@@ -70,7 +70,7 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 				case <-ioc.ctx.Done():
 					return
 				case <-time.After(heartbeat):
-				case ioReq, ok := <-ioReqs:
+				case ioReq, ok := <-ioWorkQueue:
 					if !ok {
 						return
 					}
@@ -98,7 +98,7 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 		LoaderExpireFunc(func(key interface{}) (interface{}, *time.Duration, error) {
 			select {
 			case <-ioc.ctx.Done():
-			case ioReqs <- key.(structs.IOCacheKey):
+			case ioWorkQueue <- key.(structs.IOCacheKey):
 			}
 
 			return struct{}{}, &ioc.cfg.TTL, nil

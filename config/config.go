@@ -15,6 +15,7 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -45,7 +46,8 @@ type Config struct {
 }
 
 type Agent struct {
-	RetryInit bool
+	PostgreSQLPIDPath string
+	RetryInit         bool
 }
 
 type FHCacheConfig struct {
@@ -70,10 +72,10 @@ const (
 )
 
 type WALCacheConfig struct {
-	Mode         WALMode
-	PGDataPath   string
-	XLogDumpPath string
+	Mode           WALMode
 	ReadaheadBytes units.Base2Bytes
+	PGDataPath     string
+	XLogDumpPath   string
 }
 
 func NewDefault() (*Config, error) {
@@ -134,6 +136,8 @@ func NewDefault() (*Config, error) {
 
 	agentConfig := Agent{}
 	{
+		const postmasterPIDFilename = "postmaster.pid"
+		agentConfig.PostgreSQLPIDPath = path.Join(viper.GetString(KeyPGData), postmasterPIDFilename)
 		agentConfig.RetryInit = viper.GetBool(KeyRetryDBInit)
 	}
 
@@ -187,7 +191,7 @@ func NewDefault() (*Config, error) {
 			defaultMaxConcurrentIOs = uint((driveOpsPerSec * numVDevs * drivesPerVDev * headsPerDrive) * efficiency)
 
 			// ioCacheSize is set to cache all operations for ~100 WAL files
-			ioCacheSize uint = 100 * uint(pg.WALFileSize/pg.WALPageSize)
+			ioCacheSize uint = 100 * uint(pg.WALSegmentSize/pg.WALPageSize)
 		)
 
 		if viper.IsSet(KeyNumIOThreads) || viper.GetInt(KeyNumIOThreads) == 0 {
