@@ -25,9 +25,10 @@
   branch = "master"
   name = "github.com/alecthomas/units"
 
-[[constraint]]
-  branch = "master"
+[[override]]
   name = "github.com/bluele/gcache"
+  source = "https://github.com/sean-/gcache.git"
+  branch = "gh-37"
 
 [[constraint]]
   branch = "master"

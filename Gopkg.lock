@@ -8,10 +8,11 @@
   revision = "2efee857e7cfd4f3d0138cc3cbb1b4966962b93a"
 
 [[projects]]
-  branch = "master"
+  branch = "gh-37"
   name = "github.com/bluele/gcache"
   packages = ["."]
-  revision = "6748215c018ea9d23fd269d499a3553c94d3ddf9"
+  revision = "cd4b07ab8dfbdc5307407e21ecae479a1a1c8412"
+  source = "https://github.com/sean-/gcache.git"
 
 [[projects]]
   name = "github.com/circonus-labs/circonus-gometrics"
@@ -172,6 +173,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "1ea0237d6833aeec87d71817bc558725f6958613fff2fb83e6bf3e5108f479ae"
+  inputs-digest = "0a25b879ee38e4c495c394497e05129c2f4adde4b9b8127ef3ec28f1f7b80816"
   solver-name = "gps-cdcl"
   solver-version = 1
