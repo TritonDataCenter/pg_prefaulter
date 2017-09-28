@@ -17,18 +17,25 @@ type batchItem struct {
 // Batch queries are a way of bundling multiple queries together to avoid
 // unnecessary network round trips.
 type Batch struct {
-	conn        *Conn
-	connPool    *ConnPool
-	items       []*batchItem
-	resultsRead int
-	sent        bool
-	ctx         context.Context
-	err         error
+	conn                   *Conn
+	connPool               *ConnPool
+	items                  []*batchItem
+	resultsRead            int
+	pendingCommandComplete bool
+	ctx                    context.Context
+	err                    error
+	inTx                   bool
 }
 
 // BeginBatch returns a *Batch query for c.
 func (c *Conn) BeginBatch() *Batch {
 	return &Batch{conn: c}
+}
+
+// BeginBatch returns a *Batch query for tx. Since this *Batch is already part
+// of a transaction it will not automatically be wrapped in a transaction.
+func (tx *Tx) BeginBatch() *Batch {
+	return &Batch{conn: tx.conn, inTx: true}
 }
 
 // Conn returns the underlying connection that b will or was performed on.
@@ -48,7 +55,8 @@ func (b *Batch) Queue(query string, arguments []interface{}, parameterOIDs []pgt
 	})
 }
 
-// Send sends all queued queries to the server at once. All queries are wrapped
+// Send sends all queued queries to the server at once.
+// If the batch is created from a conn Object then All queries are wrapped
 // in a transaction. The transaction can optionally be configured with
 // txOptions. The context is in effect until the Batch is closed.
 func (b *Batch) Send(ctx context.Context, txOptions *TxOptions) error {
@@ -67,12 +75,15 @@ func (b *Batch) Send(ctx context.Context, txOptions *TxOptions) error {
 		return err
 	}
 
+	buf := b.conn.wbuf
+	if !b.inTx {
+		buf = appendQuery(buf, txOptions.beginSQL())
+	}
+
 	err = b.conn.initContext(ctx)
 	if err != nil {
 		return err
 	}
-
-	buf := appendQuery(b.conn.wbuf, txOptions.beginSQL())
 
 	for _, bi := range b.items {
 		var psName string
@@ -97,7 +108,12 @@ func (b *Batch) Send(ctx context.Context, txOptions *TxOptions) error {
 	}
 
 	buf = appendSync(buf)
-	buf = appendQuery(buf, "commit")
+	b.conn.pendingReadyForQueryCount++
+
+	if !b.inTx {
+		buf = appendQuery(buf, "commit")
+		b.conn.pendingReadyForQueryCount++
+	}
 
 	n, err := b.conn.conn.Write(buf)
 	if err != nil {
@@ -107,12 +123,7 @@ func (b *Batch) Send(ctx context.Context, txOptions *TxOptions) error {
 		return err
 	}
 
-	// expect ReadyForQuery from sync and from commit
-	b.conn.pendingReadyForQueryCount = b.conn.pendingReadyForQueryCount + 2
-
-	b.sent = true
-
-	for {
+	for !b.inTx {
 		msg, err := b.conn.rxMsg()
 		if err != nil {
 			return err
@@ -145,7 +156,14 @@ func (b *Batch) ExecResults() (CommandTag, error) {
 	default:
 	}
 
+	if err := b.ensureCommandComplete(); err != nil {
+		b.die(err)
+		return "", err
+	}
+
 	b.resultsRead++
+
+	b.pendingCommandComplete = true
 
 	for {
 		msg, err := b.conn.rxMsg()
@@ -155,6 +173,7 @@ func (b *Batch) ExecResults() (CommandTag, error) {
 
 		switch msg := msg.(type) {
 		case *pgproto3.CommandComplete:
+			b.pendingCommandComplete = false
 			return CommandTag(msg.CommandTag), nil
 		default:
 			if err := b.conn.processContextFreeMsg(msg); err != nil {
@@ -182,7 +201,15 @@ func (b *Batch) QueryResults() (*Rows, error) {
 	default:
 	}
 
+	if err := b.ensureCommandComplete(); err != nil {
+		b.die(err)
+		rows.fatal(err)
+		return rows, err
+	}
+
 	b.resultsRead++
+
+	b.pendingCommandComplete = true
 
 	fieldDescriptions, err := b.conn.readUntilRowDescription()
 	if err != nil {
@@ -243,4 +270,26 @@ func (b *Batch) die(err error) {
 	if b.conn != nil && b.connPool != nil {
 		b.connPool.Release(b.conn)
 	}
+}
+
+func (b *Batch) ensureCommandComplete() error {
+	for b.pendingCommandComplete {
+		msg, err := b.conn.rxMsg()
+		if err != nil {
+			return err
+		}
+
+		switch msg := msg.(type) {
+		case *pgproto3.CommandComplete:
+			b.pendingCommandComplete = false
+			return nil
+		default:
+			err = b.conn.processContextFreeMsg(msg)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
