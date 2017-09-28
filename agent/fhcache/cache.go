@@ -69,17 +69,17 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics) 
 			if !ok {
 				log.Panic().Msgf("bad, evicting something not a file handle: %+v", fhCacheValue)
 			}
+			defer fhCacheValue.close()
 
-			fhCacheValue.close()
 			fhc.metrics.Increment(config.MetricsSysCloseCount)
 		}).
 		PurgeVisitorFunc(func(fhCacheKeyRaw, fhCacheValueRaw interface{}) {
 			fhCacheValue, ok := fhCacheValueRaw.(*_Value)
 			if !ok {
-				log.Panic().Msgf("bad, evicting something not a file handle: %+v", fhCacheValue)
+				log.Panic().Msgf("bad, purging something not a file handle: %+v", fhCacheValue)
 			}
+			defer fhCacheValue.close()
 
-			fhCacheValue.close()
 			fhc.metrics.Increment(config.MetricsSysCloseCount)
 		}).
 		Build()
