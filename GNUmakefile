@@ -78,7 +78,7 @@ initdb-follower:: ## 40 initdb(1) a follower database
 .PHONY: startdb-primary
 startdb-primary:: ## 30 Start the primary database
 	2>&1 \
-	$(POSTGRES) \
+	exec $(POSTGRES) \
 		-D "$(PGDATA_PRIMARY)" \
 		-c log_connections=on \
 		-c log_disconnections=on \
@@ -95,7 +95,7 @@ startdb-primary:: ## 30 Start the primary database
 .PHONY: startdb-follower
 startdb-follower:: ## 40 Start the follower database
 	2>&1 \
-	nice -n 20 \
+	exec nice -n 20 \
 	$(POSTGRES) \
 		-D "$(PGDATA_FOLLOWER)" \
 		-p "$(PGFOLLOWPORT)" \

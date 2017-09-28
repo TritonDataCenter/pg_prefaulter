@@ -15,9 +15,11 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
+	"github.com/alecthomas/units"
 	cgm "github.com/circonus-labs/circonus-gometrics"
 	"github.com/jackc/pgx"
 	"github.com/joyent/pg_prefaulter/buildtime"
@@ -44,7 +46,8 @@ type Config struct {
 }
 
 type Agent struct {
-	RetryInit bool
+	PostgreSQLPIDPath string
+	RetryInit         bool
 }
 
 type FHCacheConfig struct {
@@ -69,10 +72,10 @@ const (
 )
 
 type WALCacheConfig struct {
-	Mode         WALMode
-	ReadAhead    uint32
-	PGDataPath   string
-	XLogDumpPath string
+	Mode           WALMode
+	ReadaheadBytes units.Base2Bytes
+	PGDataPath     string
+	XLogDumpPath   string
 }
 
 func NewDefault() (*Config, error) {
@@ -133,6 +136,8 @@ func NewDefault() (*Config, error) {
 
 	agentConfig := Agent{}
 	{
+		const postmasterPIDFilename = "postmaster.pid"
+		agentConfig.PostgreSQLPIDPath = path.Join(viper.GetString(KeyPGData), postmasterPIDFilename)
 		agentConfig.RetryInit = viper.GetBool(KeyRetryDBInit)
 	}
 
@@ -178,15 +183,15 @@ func NewDefault() (*Config, error) {
 			efficiency     = 0.5
 			defaultTTL     = 86400 * time.Second
 
-			// TODO(seanc@): Investigation is required to figure out if maxConcurrentIOs
-			// should be clamped to the max number o pages in a given WAL file *
-			// walReadAhead.  At some point the scheduling of the IOs is going to be more
-			// burdensome than actually doing the IOs, but maybe that will only be a
-			// visible problem with SSDs. ¯\_(ツ)_/¯
+			// TODO(seanc@): Investigation is required to figure out if
+			// maxConcurrentIOs should be clamped to the max number o pages in a given
+			// WAL file * KeyWALReadahead.  At some point the scheduling of the IOs is
+			// going to be more burdensome than actually doing the IOs, but maybe that
+			// will only be a visible problem with SSDs. ¯\_(ツ)_/¯
 			defaultMaxConcurrentIOs = uint((driveOpsPerSec * numVDevs * drivesPerVDev * headsPerDrive) * efficiency)
 
 			// ioCacheSize is set to cache all operations for ~100 WAL files
-			ioCacheSize uint = 100 * uint(pg.WALFileSize/pg.WALPageSize)
+			ioCacheSize uint = 100 * uint(pg.WALSegmentSize/pg.WALPageSize)
 		)
 
 		if viper.IsSet(KeyNumIOThreads) || viper.GetInt(KeyNumIOThreads) == 0 {
@@ -211,7 +216,16 @@ func NewDefault() (*Config, error) {
 		}
 
 		walConfig.PGDataPath = viper.GetString(KeyPGData)
-		walConfig.ReadAhead = uint32(viper.GetInt(KeyWALReadAhead))
+
+		switch readAheadBytes, err := units.ParseBase2Bytes(viper.GetString(KeyWALReadahead)); {
+		case err != nil:
+			return nil, errors.Wrapf(err, "unable to parse %s", KeyPGData)
+		case readAheadBytes < 0:
+			return nil, errors.Wrapf(err, "readahead can not be negaitve value (%d)", readAheadBytes)
+		default:
+			walConfig.ReadaheadBytes = readAheadBytes
+		}
+
 		walConfig.XLogDumpPath = viper.GetString(KeyXLogPath)
 	}
 

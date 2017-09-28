@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/ioutil"
+	"math"
 	"os"
 	"os/exec"
 	"path"
@@ -26,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alecthomas/units"
 	"github.com/bluele/gcache"
 	cgm "github.com/circonus-labs/circonus-gometrics"
 	"github.com/joyent/pg_prefaulter/agent/iocache"
@@ -55,7 +58,7 @@ var xlogdumpRE = regexp.MustCompile(`s/d/r:([\d]+)/([\d]+)/([\d]+) (?:tid |blk/o
 // a) provide a reentrant interface
 // b) deduplicate requests (i.e. no thundering-herd for the same WAL file)
 // c) deliberately intollerant of scans because we know the input is monotonic
-// d) sized to include only the walReadAhead
+// d) sized to include only the KeyWALReadahead
 type WALCache struct {
 	ctx context.Context
 	wg  sync.WaitGroup
@@ -87,11 +90,11 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 		panic(fmt.Sprintf("unsupported WALConfig.mode: %v", cfg.WALCacheConfig.Mode))
 	}
 
-	walWorkers := uint(wc.cfg.ReadAhead)
-	walFiles := make(chan string)
-	for walWorker := uint(0); walWorker < walWorkers; walWorker++ {
+	walWorkers := int(math.Ceil(float64(wc.cfg.ReadaheadBytes) / float64(pg.WALSegmentSize)))
+	walFilePrefaultWorkQueue := make(chan pg.WALFilename)
+	for walWorker := 0; walWorker < walWorkers; walWorker++ {
 		wc.wg.Add(1)
-		go func(threadID uint) {
+		go func(threadID int) {
 			defer func() {
 				wc.wg.Done()
 			}()
@@ -102,7 +105,7 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 				case <-wc.ctx.Done():
 					return
 				case <-time.After(heartbeat):
-				case walFile, ok := <-walFiles:
+				case walFile, ok := <-walFilePrefaultWorkQueue:
 					if !ok {
 						return
 					}
@@ -110,7 +113,13 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 					start := time.Now()
 
 					if err := wc.prefaultWALFile(walFile); err != nil {
-						log.Error().Uint("wal-worker-thread-id", threadID).Err(err).Str("wal filename", walFile).Msg("unable to prefault WAL file")
+						// If we had a problem prefaulting in the WAL file, for whatever
+						// reason, attempt to remove it from the cache.
+						wc.c.Remove(walFile)
+
+						log.Error().Int("wal-worker-thread-id", threadID).Err(err).
+							Str("wal filename", string(walFile)).
+							Msg("unable to prefault WAL file")
 					} else {
 						wc.metrics.Increment(config.MetricsWALFaultCount)
 					}
@@ -120,19 +129,19 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 			}
 		}(walWorker)
 	}
-	log.Info().Uint("wal-worker-threads", walWorkers).Msg("started WAL worker threads")
+	log.Info().Int("wal-worker-threads", walWorkers).Msg("started WAL worker threads")
 
 	// Deliberately use a scan-intolerant cache because the inputs are going to be
 	// ordered.  When the cache is queried, return a faux result and actually
 	// perform the real work in a background goroutine.
-	wc.c = gcache.New(2 * int(wc.cfg.ReadAhead)).
+	wc.c = gcache.New(2 * int(walWorkers)).
 		LRU().
 		LoaderFunc(func(keyRaw interface{}) (interface{}, error) {
-			key := keyRaw.(string)
+			walFilename := keyRaw.(pg.WALFilename)
 
 			select {
 			case <-wc.ctx.Done():
-			case walFiles <- key:
+			case walFilePrefaultWorkQueue <- walFilename:
 			}
 
 			return true, nil
@@ -163,9 +172,9 @@ func (wc *WALCache) Purge() {
 	wc.ioCache.Purge()
 }
 
-// ReadAhead returns the number of WAL files to read ahead of PostgreSQL.
-func (wc *WALCache) ReadAhead() uint32 {
-	return wc.cfg.ReadAhead
+// ReadaheadBytes returns the number of WAL files to read ahead of PostgreSQL.
+func (wc *WALCache) ReadaheadBytes() units.Base2Bytes {
+	return wc.cfg.ReadaheadBytes
 }
 
 // Wait blocks until the WALCache finishes shutting down its workers (including
@@ -178,32 +187,35 @@ func (wc *WALCache) Wait() {
 // prefaultWALFile shells out to pg_xlogdump(1) and reads its input.  The input
 // from pg_xlogdump(1) is then turned into IO requests that are picked up and
 // handled by the ioCache.
-func (wc *WALCache) prefaultWALFile(walFile string) (err error) {
+func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	re := wc.re.Copy()
 	var linesMatched, linesScanned, walFilesProcessed uint64
 
-	fileName := path.Join(wc.cfg.PGDataPath, "pg_xlog", walFile)
-	_, err = os.Stat(fileName)
+	walFileAbs := path.Join(wc.cfg.PGDataPath, "pg_xlog", string(walFile))
+	_, err = os.Stat(walFileAbs)
 	if err != nil {
-		log.Debug().Err(err).Msg("stat")
+		log.Debug().Err(err).Str("walfile", string(walFile)).Msg("stat")
 		return errors.Wrap(err, "WAL file does not exist")
 	}
 
-	cmd := exec.CommandContext(wc.ctx, wc.cfg.XLogDumpPath, fileName)
-	var stdoutStderr []byte
-	stdoutStderr, err = cmd.CombinedOutput()
-	if err != nil {
-		log.Debug().Err(err).Msg("pg_xlogdump exec")
+	var pgDumpXLOGOut []byte
+	cmd := exec.CommandContext(wc.ctx, wc.cfg.XLogDumpPath, walFileAbs)
+	cmd.Stderr = ioutil.Discard
+	pgDumpXLOGOut, err = cmd.Output()
+
+	// pg_xlogdump(1) can return 1 when it has problems decoding output.  Notably
+	// this can occur with corrupt or records that can't be parsed fully.  For
+	// instance:
+	//
+	// pg_xlogdump: FATAL:  error in WAL record at C/A15FD930: record with incorrect prev-link 61313664/37303561 at C/A15FD968
+	//
+	// As such, only bail if we have an error and there wasn't any stdout output.
+	if len(pgDumpXLOGOut) == 0 && err != nil {
+		log.Debug().Err(err).Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).Str("walfile", walFileAbs).Msg("pg_xlogdump execve(2) failed")
 		return errors.Wrapf(err, "unable to run %q", wc.cfg.XLogDumpPath)
 	}
 
-	if len(stdoutStderr) == 0 {
-		log.Warn().Str("out", string(stdoutStderr)).Msg("unable to process WAL file")
-		log.Debug().Msg("nada")
-		return nil
-	}
-
-	scanner := bufio.NewScanner(bytes.NewReader(stdoutStderr))
+	scanner := bufio.NewScanner(bytes.NewReader(pgDumpXLOGOut))
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		linesScanned++
@@ -246,8 +258,8 @@ func (wc *WALCache) prefaultWALFile(walFile string) (err error) {
 			// Worst case is we flood the ioCache with requests and then block on the
 			// next WALfile.  Because the max number of pages per WAL file is finite
 			// (16MiB/8KiB == ~2K), at most we should have 2K threads running *
-			// walReadAhead.  That's very survivable for now but can be optimized if
-			// necessary.
+			// KeyWALReadahead.  That's very survivable for now but can be optimized
+			// if necessary.
 			ioCacheKey := structs.IOCacheKey{
 				Tablespace: pg.OID(tablespace),
 				Database:   pg.OID(database),
@@ -267,10 +279,16 @@ func (wc *WALCache) prefaultWALFile(walFile string) (err error) {
 	if err = scanner.Err(); err != nil {
 		log.Warn().Err(err).Msg("scanning output")
 	}
-	walFilesProcessed++
+
+	// For whatever reason pg_xlogdump(1) succeeded but produced no output
+	if len(pgDumpXLOGOut) > 0 {
+		walFilesProcessed++
+	} else {
+		log.Warn().Str("out", string(pgDumpXLOGOut)).Msgf("unable to process WAL file: %+q", pgDumpXLOGOut)
+	}
 
 	wc.metrics.Add(config.MetricsXLogPrefaulted, walFilesProcessed)
-	wc.metrics.RecordValue(config.MetricsXLogDumpLen, float64(len(stdoutStderr)))
+	wc.metrics.RecordValue(config.MetricsXLogDumpLen, float64(len(pgDumpXLOGOut)))
 	wc.metrics.RecordValue(config.MetricsXLogDumpLinesMatched, float64(linesMatched))
 	wc.metrics.RecordValue(config.MetricsXLogDumpLinesScanned, float64(linesScanned))
 
