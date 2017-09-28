@@ -20,7 +20,7 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 )
 
-func (m *CirconusMetrics) submit(output map[string]interface{}, newMetrics map[string]*api.CheckBundleMetric) {
+func (m *CirconusMetrics) submit(output Metrics, newMetrics map[string]*api.CheckBundleMetric) {
 
 	// if there is nowhere to send metrics to, just return.
 	if !m.check.IsReady() {

@@ -40,11 +40,11 @@ func TestSubmit(t *testing.T) {
 	}
 
 	newMetrics := make(map[string]*api.CheckBundleMetric)
-	output := make(map[string]interface{})
-	output["foo"] = map[string]interface{}{
-		"_type":  "n",
-		"_value": 1,
-	}
+	output := Metrics{"foo": Metric{Type: "n", Value: 1}}
+	// output["foo"] = map[string]interface{}{
+	// 	"_type":  "n",
+	// 	"_value": 1,
+	// }
 	cm.submit(output, newMetrics)
 }
 

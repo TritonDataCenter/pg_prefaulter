@@ -16,8 +16,8 @@
 [[projects]]
   name = "github.com/circonus-labs/circonus-gometrics"
   packages = [".","api","api/config","checkmgr"]
-  revision = "85eb4cccf312bf5868a05cceef09cf75dd18dddd"
-  version = "v1.0.0"
+  revision = "efbf5b0bb26c98837afb6b3ec17f1a69f5be861f"
+  version = "v1.1.0"
 
 [[projects]]
   branch = "master"
@@ -53,7 +53,7 @@
   branch = "master"
   name = "github.com/hashicorp/hcl"
   packages = [".","hcl/ast","hcl/parser","hcl/scanner","hcl/strconv","hcl/token","json/parser","json/scanner","json/token"]
-  revision = "8f6b1344a92ff8877cf24a5de9177bf7d0a2a187"
+  revision = "68e816d1c783414e79bc65b3994d9ab6b0a722ab"
 
 [[projects]]
   name = "github.com/inconshreveable/mousetrap"
@@ -65,7 +65,7 @@
   branch = "master"
   name = "github.com/jackc/pgx"
   packages = [".","chunkreader","internal/sanitize","pgio","pgproto3","pgtype"]
-  revision = "3e49ad8decfd543c62be37e3d2474692bbfd45a0"
+  revision = "e7924c75904a3345ba87508146f4074ae7ee9c60"
 
 [[projects]]
   branch = "master"
@@ -155,13 +155,13 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "033028a6b48fc0a55d5e5b4465cba74afb6d7fee"
+  revision = "314a259e304ff91bd6985da2a7149bbf91237993"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/text"
   packages = ["internal/gen","internal/triegen","internal/ucd","transform","unicode/cldr","unicode/norm"]
-  revision = "acd49d43e9b95df46670431bf5c7ae59586daad8"
+  revision = "1cbadb444a806fd9430d14ad08967ed91da4fa0a"
 
 [[projects]]
   branch = "v2"
