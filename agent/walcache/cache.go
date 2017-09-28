@@ -113,6 +113,10 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 					start := time.Now()
 
 					if err := wc.prefaultWALFile(walFile); err != nil {
+						// If we had a problem prefaulting in the WAL file, for whatever
+						// reason, attempt to remove it from the cache.
+						wc.c.Remove(walFile)
+
 						log.Error().Int("wal-worker-thread-id", threadID).Err(err).
 							Str("wal filename", string(walFile)).
 							Msg("unable to prefault WAL file")

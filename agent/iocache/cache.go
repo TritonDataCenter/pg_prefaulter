@@ -78,6 +78,10 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 					start := time.Now()
 
 					if err := ioc.fhCache.PrefaultPage(ioReq); err != nil {
+						// If we had a problem prefaulting in the WAL file, for whatever
+						// reason, attempt to remove it from the cache.
+						ioc.c.Remove(ioReq)
+
 						log.Warn().Uint("io-worker-thread-id", threadID).Err(err).
 							Uint64("database", uint64(ioReq.Database)).
 							Uint64("relation", uint64(ioReq.Relation)).
