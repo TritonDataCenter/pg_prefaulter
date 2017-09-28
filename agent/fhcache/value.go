@@ -16,6 +16,7 @@ package fhcache
 import (
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 )
@@ -37,6 +38,7 @@ func (fh *_Value) close() {
 	fh.lock.Lock()
 	defer fh.lock.Unlock()
 
+	atomic.AddUint64(&closeFDCount, 1)
 	fh.f.Close()
 	fh.f = nil
 }
@@ -47,6 +49,7 @@ func (value *_Value) open(pgdataPath string) (*os.File, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "unable to open relation segment %q", filename)
 	}
+	atomic.AddUint64(&openFDCount, 1)
 
 	return f, nil
 }
