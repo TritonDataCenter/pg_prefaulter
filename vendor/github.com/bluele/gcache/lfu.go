@@ -26,7 +26,7 @@ func (c *LFUCache) init() {
 	c.items = make(map[interface{}]*lfuItem, c.size+1)
 	c.freqList.PushFront(&freqEntry{
 		freq:  0,
-		items: make(map[*lfuItem]struct{}),
+		items: make(map[*lfuItem]byte),
 	})
 }
 
@@ -78,7 +78,7 @@ func (c *LFUCache) set(key, value interface{}) (interface{}, error) {
 		}
 		el := c.freqList.Front()
 		fe := el.Value.(*freqEntry)
-		fe.items[item] = struct{}{}
+		fe.items[item] = 1
 
 		item.freqElement = el
 		c.items[key] = item
@@ -187,10 +187,10 @@ func (c *LFUCache) increment(item *lfuItem) {
 	if nextFreqElement == nil {
 		nextFreqElement = c.freqList.InsertAfter(&freqEntry{
 			freq:  nextFreq,
-			items: make(map[*lfuItem]struct{}),
+			items: make(map[*lfuItem]byte),
 		}, currentFreqElement)
 	}
-	nextFreqElement.Value.(*freqEntry).items[item] = struct{}{}
+	nextFreqElement.Value.(*freqEntry).items[item] = 1
 	item.freqElement = nextFreqElement
 }
 
@@ -284,12 +284,18 @@ func (c *LFUCache) Purge() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.purgeVisitorFunc != nil {
+		for key, item := range c.items {
+			c.purgeVisitorFunc(key, item.value)
+		}
+	}
+
 	c.init()
 }
 
 type freqEntry struct {
 	freq  uint
-	items map[*lfuItem]struct{}
+	items map[*lfuItem]byte
 }
 
 type lfuItem struct {
