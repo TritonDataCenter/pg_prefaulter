@@ -25,11 +25,24 @@ import (
 
 // LSN is a Go implementation of PostgreSQL's Log Sequence Number (LSN):
 // https://www.postgresql.org/docs/current/static/datatype-pg-lsn.html
+//
+// An LSN encodes two pieces of information:
+//
+// 1. the WAL Segment
+// 2. the byte offset within an individual WAL segment
+//
+// The byte offset is the lower 24 bits of the LSN.  The WAL Segment number is
+// the uppwer 40 bits of the LSN.
 type LSN uint64
 
+const (
+	LSNByteMask    WALByteOffset    = 0x00FFFFFF
+	LSNSegmentMask WALSegmentNumber = 0xFFFFFFFFFF
+)
+
 // NewLSN creates a new LSN from a segment ID and offset
-func NewLSN(segNo HeapSegment, off Offset) LSN {
-	return LSN(uint64(segNo)<<32 | uint64(off))
+func NewLSN(segNo WALSegmentNumber, off WALByteOffset) LSN {
+	return LSN(uint64(LSNSegmentMask&segNo)<<24 | uint64(LSNByteMask&off))
 }
 
 // LSNCmp compares x and y and returns:
@@ -67,22 +80,27 @@ func MustParseLSN(inLSN string) LSN {
 
 // ParseLSN returns a parsed LSN
 func ParseLSN(in string) (LSN, error) {
-	parts := strings.Split(in, "/")
+	// Search for at most 3 parts so we can detect if the input was malformed.
+	parts := strings.SplitN(in, "/", 3)
 	if len(parts) != 2 {
 		return InvalidLSN, fmt.Errorf("invalid LSN: %q", in)
 	}
 
-	id, err := strconv.ParseUint(parts[0], 16, 32)
+	segNo, err := strconv.ParseUint(parts[0], 16, 32)
 	if err != nil {
-		return InvalidLSN, errors.Wrap(err, "unable to decode the segment ID")
+		return InvalidLSN, errors.Wrap(err, "unable to decode the WAL segment number")
 	}
 
 	offset, err := strconv.ParseUint(parts[1], 16, 32)
 	if err != nil {
-		return InvalidLSN, errors.Wrap(err, "unable to decode the segment ID")
+		return InvalidLSN, errors.Wrap(err, "unable to decode the WAL offset")
 	}
 
-	return NewLSN(HeapSegment(id), Offset(offset)), nil
+	// NOTE(seanc@): the order of the AND NOT operator is significant.  See the
+	// type LSN comment for details on the extraction.
+	segNo = uint64(segNo<<8) | uint64((WALByteOffset(offset)&^LSNByteMask)>>24)
+
+	return NewLSN(WALSegmentNumber(segNo), LSNByteMask&WALByteOffset(offset)), nil
 }
 
 // ParseWalfile returns a parsed LSN from a given WALFilename
@@ -96,44 +114,47 @@ func ParseWalfile(in WALFilename) (TimelineID, LSN, error) {
 		return InvalidTimelineID, InvalidLSN, errors.Wrap(err, "unable to decode the timeline ID")
 	}
 
-	segmentID, err := strconv.ParseUint(string(in)[8:16], 16, 64)
+	segmentHigh, err := strconv.ParseUint(string(in)[8:16], 16, 64)
 	if err != nil {
-		return InvalidTimelineID, InvalidLSN, errors.Wrap(err, "unable to decode the segment ID")
+		return InvalidTimelineID, InvalidLSN, errors.Wrap(err, "unable to decode the WAL segment high bits")
 	}
 
-	offset, err := strconv.ParseUint(string(in)[16:24], 16, 64)
+	segmentLow, err := strconv.ParseUint(string(in)[16:24], 16, 64)
 	if err != nil {
-		return InvalidTimelineID, InvalidLSN, errors.Wrap(err, "unable to decode the byte offset")
+		return InvalidTimelineID, InvalidLSN, errors.Wrap(err, "unable to decode the WAL segment low bits")
 	}
 
-	return TimelineID(timelineID), NewLSN(HeapSegment(segmentID), Offset(offset)), nil
+	// Cast to 32 bit in order to explicitly receive the side effects of integer
+	// overflow/wrap around.
+	segmentHigh32 := uint32(segmentHigh)
+	segmentLow32 := uint32(segmentLow)
+	lsn := LSN(
+		((uint64(segmentHigh32) << 32) |
+			(uint64(segmentLow32) * uint64(WALSegmentSize))) + 1)
+
+	return TimelineID(timelineID), lsn, nil
 }
 
 // AddBytes adds bytes to a given LSN
 func (lsn LSN) AddBytes(n units.Base2Bytes) LSN {
-	return NewLSN(lsn.ID(), lsn.ByteOffset()+Offset(n))
-}
-
-// ID returns the numeric ID of the WAL.
-func (lsn LSN) ID() HeapSegment {
-	return HeapSegment(uint32(lsn >> 32))
+	return LSN(uint64(lsn) + uint64(n))
 }
 
 // Offset returns the byte offset inside of a WAL segment.
-func (lsn LSN) ByteOffset() Offset {
-	return Offset(lsn)
+func (lsn LSN) ByteOffset() WALByteOffset {
+	return WALByteOffset(uint64(lsn) % uint64(WALSegmentSize))
 }
 
 // Readahead returns all of the anticipated WAL filenames that will be present
 // in the future based on the lsn and the readahead.
 func (lsn LSN) Readahead(timelineID TimelineID, maxBytes units.Base2Bytes) []WALFilename {
 	// Always read in at least the current WAL file
-	walFiles := make([]WALFilename, 0, int(math.Ceil(float64(maxBytes)/float64(WALFileSize))))
+	walFiles := make([]WALFilename, 0, int(math.Ceil(float64(maxBytes)/float64(WALSegmentSize))))
 
 	cur := lsn
-	for remainingBytes := maxBytes; remainingBytes > 0; remainingBytes -= WALFileSize {
+	for remainingBytes := maxBytes; remainingBytes > 0; remainingBytes -= WALSegmentSize {
 		walFiles = append(walFiles, cur.WALFilename(timelineID))
-		cur = cur.AddBytes(WALFileSize)
+		cur = cur.AddBytes(WALSegmentSize)
 	}
 
 	return walFiles
@@ -141,33 +162,36 @@ func (lsn LSN) Readahead(timelineID TimelineID, maxBytes units.Base2Bytes) []WAL
 
 // String returns the string representation of an LSN.
 func (lsn LSN) String() string {
-	var segNo HeapSegment
-	var off Offset
-	segNo = HeapSegment(lsn >> 32)
-	off = Offset(lsn)
-	return fmt.Sprintf("%X/%X", segNo, off)
+	segNo := lsn.SegmentNumber()
+	return fmt.Sprintf("%X/%X%X", segNo.High(), segNo.Low(), lsn.ByteOffset())
 }
 
-// Segment returns the Segment number of the LSN.
-func (lsn LSN) SegmentNumber() HeapSegment {
-	return HeapSegment(uint64(lsn) / uint64(WALFileSize))
+// SegmentNumber returns the Segment number of the LSN.
+func (lsn LSN) SegmentNumber() WALSegmentNumber {
+	return WALSegmentNumber(uint64(lsn) / uint64(WALSegmentSize))
 }
 
 // WALFilename returns the name of a WAL's filename.  The timeline number is
 // optional.  If the timeline is not specified, default to a timelineID of 1.
-func (lsn LSN) WALFilename(timelineID ...TimelineID) WALFilename {
-	var tid TimelineID
-	switch len(timelineID) {
-	case 0:
-		tid = 1
-	case 1:
-		tid = timelineID[0]
-	default:
-		panic("only one timelineID supported")
-	}
-
-	walFilename := fmt.Sprintf("%08X%08X%08X", tid,
-		uint64(lsn.SegmentNumber())/WALFilesPerSegment,
-		uint64(lsn.SegmentNumber())%WALFilesPerSegment)
+func (lsn LSN) WALFilename(timelineID TimelineID) WALFilename {
+	// NOTE(seanc@): The -1 comes from PostgreSQL's XLByteToPrevSeg(), which is
+	// used by XLogFileName().  See postgresql/src/include/access/xlog_internal.h
+	// for additional details.
+	prevLSN := lsn - 1
+	prevSeg := prevLSN.SegmentNumber()
+	walFilename := fmt.Sprintf("%08X%08X%08X",
+		timelineID,
+		prevSeg.High(),
+		prevSeg.Low())
 	return WALFilename(walFilename)
+}
+
+// High returns the high 32 bits of the SegmentNumber.
+func (segNo WALSegmentNumber) High() uint64 {
+	return uint64(uint32(uint64(segNo) / uint64(WALSegmentsPerWALID)))
+}
+
+// LowSegmentNumberLow returns the lower 8 bits of the SegmentNumber.
+func (segNo WALSegmentNumber) Low() uint64 {
+	return uint64(uint32(uint64(segNo) % uint64(WALSegmentsPerWALID)))
 }
