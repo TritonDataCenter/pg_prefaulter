@@ -73,6 +73,15 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics) 
 			fhCacheValue.close()
 			fhc.metrics.Increment(config.MetricsSysCloseCount)
 		}).
+		PurgeVisitorFunc(func(fhCacheKeyRaw, fhCacheValueRaw interface{}) {
+			fhCacheValue, ok := fhCacheValueRaw.(*_Value)
+			if !ok {
+				log.Panic().Msgf("bad, evicting something not a file handle: %+v", fhCacheValue)
+			}
+
+			fhCacheValue.close()
+			fhc.metrics.Increment(config.MetricsSysCloseCount)
+		}).
 		Build()
 
 	go lib.LogCacheStats(fhc.ctx, fhc.c, "filehandle-stats")
