@@ -17,6 +17,7 @@ import (
 	"context"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bluele/gcache"
@@ -27,6 +28,12 @@ import (
 	"github.com/joyent/pg_prefaulter/pg"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
+)
+
+var (
+	// Add a few atomic counters to verify the system is behaving as expected.
+	openFDCount  uint64
+	closeFDCount uint64
 )
 
 // FileHandleCache is a file descriptor cache to prevent re-open(2)'ing files
@@ -81,6 +88,15 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics) 
 			defer fhCacheValue.close()
 
 			fhc.metrics.Increment(config.MetricsSysCloseCount)
+
+			closeCount := atomic.LoadUint64(&closeFDCount)
+			openCount := atomic.LoadUint64(&openFDCount)
+			if openCount != closeCount {
+				// Open vs close accountancy errors are considered fatal
+				log.Panic().
+					Uint64("close-count", closeCount).Uint64("open-count", openCount).
+					Msgf("bad, open vs close count not the same after purge")
+			}
 		}).
 		Build()
 

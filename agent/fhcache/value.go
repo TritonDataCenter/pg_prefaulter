@@ -16,8 +16,10 @@ package fhcache
 import (
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 )
 
 // _Value is the FileHandleCache value.  _Value provides synchronization around
@@ -37,8 +39,11 @@ func (fh *_Value) close() {
 	fh.lock.Lock()
 	defer fh.lock.Unlock()
 
-	fh.f.Close()
+	if err := fh.f.Close(); err != nil {
+		log.Error().Err(err).Msg("unable to close FD")
+	}
 	fh.f = nil
+	atomic.AddUint64(&closeFDCount, 1)
 }
 
 func (value *_Value) open(pgdataPath string) (*os.File, error) {
@@ -47,6 +52,7 @@ func (value *_Value) open(pgdataPath string) (*os.File, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "unable to open relation segment %q", filename)
 	}
+	atomic.AddUint64(&openFDCount, 1)
 
 	return f, nil
 }
