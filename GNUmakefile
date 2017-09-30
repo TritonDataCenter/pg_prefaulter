@@ -211,11 +211,11 @@ psql:: psql-primary ## 70 Open a psql(1) shell to the primary
 
 .PHONY: psql-primary
 psql-primary:: check-psql ## 30 Open a psql(1) shell to the primary
-	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PSQL) -E postgres postgres
+	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -E postgres postgres $(PSQL_ARGS)
 
 .PHONY: psql-follower
 psql-follower:: check-psql ## 40 Open a psql(1) shell to the follower
-	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PSQL) -p 5433 -E postgres postgres
+	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -p 5433 -E postgres postgres $(PSQL_ARGS)
 
 .PHONY: help
 help:: ## 99 This help message
