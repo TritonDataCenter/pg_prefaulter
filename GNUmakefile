@@ -45,7 +45,7 @@ release-snapshot: ## 10 Build a snapshot release
 
 PGVERSION?=96
 POSTGRES?=$(wildcard /usr/local/bin/postgres /opt/local/lib/postgresql$(PGVERSION)/bin/postgres /opt/local/bin/postgres)
-PSQL?=$(wildcard /usr/local/bin/psql /opt/local/lib/postgresql$(PGVERSION)/bin/psql)
+PSQL?=$(wildcard /usr/local/bin/psql /opt/local/lib/postgresql$(PGVERSION)/bin/psql /opt/local/bin/psql)
 PG_BASEBACKUP?=$(wildcard /usr/local/bin/pg_basebackup /opt/local/lib/postgresql$(PGVERSION)/bin/pg_basebackup /opt/local/bin/pg_basebackup)
 INITDB?=$(wildcard /usr/local/bin/initdb /opt/local/lib/postgresql$(PGVERSION)/bin/initdb /opt/local/bin/initdb)
 PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgresql$(PGVERSION)/bin/pg_controldata)
@@ -68,6 +68,13 @@ check-initdb::
 check-pg_basebackup::
 	@if [ -z "$(PG_BASEBACKUP)" ]; then \
 		printf "pg_basebackup(1) not found.  Check PostgreSQL installation or set PG_BASEBACKUP=/path/to/pg_basebackup"; \
+		exit 1; \
+	fi
+
+.PHONY: check-psql
+check-psql::
+	@if [ -z "$(PSQL)" ]; then \
+		printf "psql(1) not found.  Check PostgreSQL installation or set PSQL=/path/to/psql"; \
 		exit 1; \
 	fi
 
@@ -154,15 +161,15 @@ freshdb-follower:: cleandb-follower initdb-follower startdb-follower ## 40 Drops
 testdb:: check resetdb ## 50 Run database tests
 
 .PHONY: resetdb
-resetdb:: dropdb createdb gendata ## 50 Drop and recreate the database
+resetdb:: check-psql dropdb createdb gendata ## 50 Drop and recreate the database
 	2>&1 PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" postgres -c 'DROP DATABASE test' | tee -a test.log
 
 .PHONY: dropdb
-dropdb:: ## 50 Reset the test database
+dropdb:: check-psql ## 50 Reset the test database
 	2>&1 PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" postgres -c 'DROP DATABASE test' | tee -a test.log
 
 .PHONY: createdb
-createdb: ## 50 Create the test database
+createdb: check-psql ## 50 Create the test database
 	2>&1 PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" postgres -c 'CREATE DATABASE test' | tee -a test.log
 	2>&1 PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" test -c 'CREATE TABLE garbage (s INT, md5 TEXT)' | tee -a test.log
 
@@ -171,18 +178,18 @@ controldata:: ## 70 Display pg_controldata(1) of the primary
 	$(PG_CONTROLDATA) -D "$(PGDATA_PRIMARY)"
 
 .PHONY: gendata
-gendata:: ## 50 Generate data in the primary
+gendata:: check-psql ## 50 Generate data in the primary
 	2>&1 PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" PGOPTIONS="-c synchronous_commit=off" "$(PSQL)" test -c 'INSERT INTO garbage SELECT s, md5(random()::text) FROM generate_series(1,1000000) s' | tee -a test.log
 
 .PHONY: psql
 psql:: psql-primary ## 70 Open a psql(1) shell to the primary
 
 .PHONY: psql-primary
-psql-primary:: ## 30 Open a psql(1) shell to the primary
+psql-primary:: check-psql ## 30 Open a psql(1) shell to the primary
 	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PSQL) -E postgres postgres
 
 .PHONY: psql-follower
-psql-follower:: ## 40 Open a psql(1) shell to the follower
+psql-follower:: check-psql ## 40 Open a psql(1) shell to the follower
 	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PSQL) -p 5433 -E postgres postgres
 
 .PHONY: help
