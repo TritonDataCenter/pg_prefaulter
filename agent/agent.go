@@ -331,7 +331,10 @@ func (a *Agent) getWALFiles() ([]pg.WALFilename, error) {
 		if psErr == nil {
 			walFileLookupMode = "ps"
 		} else {
-			return nil, fmt.Errorf("unable to query the DB (%+v) or ps args (%+v)", dbErr, psErr)
+			// Return a retriable error since processPSArgs returned true indicating
+			// the database was starting up.
+			raisedErr := fmt.Errorf("unable to query the DB (%+v) or process arguments (%+v)", dbErr, psErr)
+			return nil, newWALError(raisedErr, true, true)
 		}
 	}
 
