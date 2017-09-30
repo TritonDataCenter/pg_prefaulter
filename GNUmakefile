@@ -57,10 +57,24 @@ PGDATA_FOLLOWER?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_follower
 
 PGFOLLOWPORT=5433
 
+.PHONY: check-initdb
+check-initdb::
+	@if [ -z "$(INITDB)" ]; then \
+		printf "initdb(1) not found.  Check PostgreSQL installation or set INITDB=/path/to/initdb"; \
+		exit 1; \
+	fi
+
 .PHONY: check-pg_basebackup
 check-pg_basebackup::
 	@if [ -z "$(PG_BASEBACKUP)" ]; then \
 		printf "pg_basebackup(1) not found.  Check PostgreSQL installation or set PG_BASEBACKUP=/path/to/pg_basebackup"; \
+		exit 1; \
+	fi
+
+.PHONY: check-postgres
+check-postgres::
+	@if [ -z "$(POSTGRES)" ]; then \
+		printf "postgres(1) not found.  Check PostgreSQL installation or set POSTGRES=/path/to/postgres"; \
 		exit 1; \
 	fi
 
@@ -70,15 +84,8 @@ $(PWFILE):
 .PHONY: freshdb-primary
 freshdb-primary:: cleandb-primary initdb-primary startdb-primary ## 30 Drops and recreates the primary database
 
-.PHONY: initdb-check
-initdb-check::
-	@if [ -z "$(INITDB)" ]; then \
-		printf "initdb(1) not found.  Check PostgreSQL installation or set INITDB=/path/to/initdb"; \
-		exit 1; \
-	fi
-
 .PHONY: initdb-primary
-initdb-primary:: $(PWFILE) initdb-check ## 30 initdb(1) a primary database
+initdb-primary:: $(PWFILE) check-initdb ## 30 initdb(1) a primary database
 	$(INITDB) --no-locale -U postgres -A md5 --pwfile="$(PWFILE)" -D "$(PGDATA_PRIMARY)"
 	mkdir -p $(PGDATA_PRIMARY) $(PGDATA_FOLLOWER) || true
 	echo "local   replication     postgres                                md5" >> $(PGDATA_PRIMARY)/pg_hba.conf
@@ -90,15 +97,8 @@ initdb-follower:: $(PWFILE) check-pg_basebackup ## 40 initdb(1) a follower datab
 	env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PG_BASEBACKUP) -R -h localhost -D $(PGDATA_FOLLOWER) -P -U postgres --xlog-method=stream
 	mkdir -p $(PGDATA_FOLLOWER)/archive || true
 
-.PHONY: postgres-check
-postgres-check::
-	@if [ -z "$(POSTGRES)" ]; then \
-		printf "postgres(1) not found.  Check PostgreSQL installation or set POSTGRES=/path/to/postgres"; \
-		exit 1; \
-	fi
-
 .PHONY: startdb-primary
-startdb-primary:: postgres-check ## 30 Start the primary database
+startdb-primary:: check-postgres ## 30 Start the primary database
 	2>&1 \
 	exec $(POSTGRES) \
 		-D "$(PGDATA_PRIMARY)" \
@@ -115,7 +115,7 @@ startdb-primary:: postgres-check ## 30 Start the primary database
 	| tee -a postgresql-primary.log
 
 .PHONY: startdb-follower
-startdb-follower:: postgres-check ## 40 Start the follower database
+startdb-follower:: check-postgres ## 40 Start the follower database
 	2>&1 \
 	exec nice -n 20 \
 	$(POSTGRES) \
