@@ -28,6 +28,7 @@ import (
 
 	"github.com/joyent/pg_prefaulter/pg"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 )
 
 // 2>&1 pargs 80418 | grep 'startup process' | grep recovering
@@ -78,17 +79,21 @@ func findWALFileFromPIDArgsViaPArgs(ctx context.Context, pids []PID) (pg.WALFile
 	// 2>&1 pargs `pgrep -P 80418` | grep 'startup process' | grep recovering
 	//
 	// argv[0]: postgres: startup process   recovering 00000001000002B8000000F9
-	//
-	// FIXME(seanc@): Perform an exec.LookPath() on startup to cache the absolute
-	// path of pargs(1).
 	var cmd *exec.Cmd
 	{
 		pidStrs := make([]string, len(pids))
 		for n := range pids {
-			pidStrs[n] = string(pids[n])
+			pidStrs[n] = strconv.FormatUint(uint64(pids[n]), 10)
 		}
 
-		cmd = exec.CommandContext(ctx, "pargs", pidStrs...)
+		// FIXME(seanc@): The call to exec.LookPath("pargs") should probably be
+		// performed at process startup and cached.
+		psargsPath, err := exec.LookPath("pargs")
+		if err != nil {
+			return "", errors.Wrap(err, "unable to find pargs(1)")
+		}
+
+		cmd = exec.CommandContext(ctx, psargsPath, pidStrs...)
 	}
 
 	// pargs is rather noisy:
@@ -102,23 +107,26 @@ func findWALFileFromPIDArgsViaPArgs(ctx context.Context, pids []PID) (pg.WALFile
 		return "", errors.Wrap(err, "unable to exec pargs(1)")
 	}
 
-	var walSegment string
+	var walFilename pg.WALFilename
 	re := pargsRE.Copy()
 	scanner := bufio.NewScanner(bytes.NewReader(pargsOut))
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := scanner.Bytes()
 
-		walSegment = re.FindString(line)
-		if walSegment != "" {
-			break
+		md := re.FindSubmatch(line)
+		if md == nil || len(md) != 2 {
+			continue
 		}
+		walFilename = pg.WALFilename(md[1])
+		break
 	}
 
 	if err := scanner.Err(); err != nil {
 		return "", errors.Wrap(err, "unable to extract PostgreSQL WAL segment from pargs(1)")
 	}
 
-	return pg.WALFilename(walSegment), nil
+	log.Debug().Str("walfile", string(walFilename)).Msg("found WAL segment from pargs(1)")
+	return walFilename, nil
 }
 
 func findWALFileFromPIDArgsViaProc(ctx context.Context, pids []PID) (pg.WALFilename, error) {
