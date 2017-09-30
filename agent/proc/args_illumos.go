@@ -36,6 +36,9 @@ import (
 // argv[0]: postgres: startup process   recovering 00000001000002B8000000F9
 var pargsRE = regexp.MustCompile(`^argv\[0\]: postgres: startup process[\s]+recovering[\s]+([0-9A-F]{24})`)
 
+// postgres: startup process   recovering 00000001000000000000005C \\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00
+var procRE = regexp.MustCompile(`^postgres: startup process[\s]+recovering[\s]+([0-9A-F]{24})`)
+
 // FindWALFileFromPIDArgs searches a slice of PIDs to find the WAL filename
 // being currently processed.
 func FindWALFileFromPIDArgs(ctx context.Context, pids []PID) (walFilename pg.WALFilename, err error) {
@@ -130,7 +133,7 @@ func findWALFileFromPIDArgsViaPArgs(ctx context.Context, pids []PID) (pg.WALFile
 }
 
 func findWALFileFromPIDArgsViaProc(ctx context.Context, pids []PID) (pg.WALFilename, error) {
-	re := pargsRE.Copy()
+	re := procRE.Copy()
 
 	for _, pid := range pids {
 		argvPath := path.Join("/proc", strconv.FormatInt(int64(pid), 10), "argv")
@@ -142,17 +145,19 @@ func findWALFileFromPIDArgsViaProc(ctx context.Context, pids []PID) (pg.WALFilen
 
 		args := bytes.Split(argvOut, []byte("\x00"))
 		// PostgreSQL's use of setproctitle(3) sets one large string with spaces.
-		if len(args) != 1 {
+		if len(args) < 1 {
+			log.Debug().Str("mode", "/proc").Str("args", fmt.Sprintf("%+q", argvOut)).Int("len", len(args)).Msg("Unable to parse /proc output")
 			continue
 		}
 
-		md := re.Find(args[0])
-		if md == nil {
+		md := re.FindSubmatch(args[0])
+		if md == nil || len(md) != 2 {
 			continue
 		}
 
-		walFilename := pg.WALFilename(md)
+		walFilename := pg.WALFilename(md[1])
 		if _, _, err := pg.ParseWalfile(walFilename); err == nil {
+			log.Debug().Str("walfile", string(walFilename)).Msg("found WAL segment from /proc")
 			return walFilename, nil
 		}
 	}
