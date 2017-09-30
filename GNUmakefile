@@ -125,7 +125,7 @@ startdb-primary:: check-postgres ## 30 Start the primary database
 		-c max_wal_senders=5 \
 		-c wal_keep_segments=50 \
 		-c hot_standby=on \
-		-c archive_command="cp %p $(PGDATA_FOLLOWER)/archive/%f" \
+		-c archive_command="exit 0" \
 	| tee -a postgresql-primary.log
 
 .PHONY: startdb-follower
@@ -144,7 +144,7 @@ startdb-follower:: check-postgres ## 40 Start the follower database
 		-c max_wal_senders=5 \
 		-c wal_keep_segments=50 \
 		-c hot_standby=on \
-		-c archive_command="cp %p $(PGDATA_FOLLOWER)/archive/%f" \
+		-c archive_command="exit 0" \
 	| tee postgresql-follower.log
 
 .PHONY: clean
