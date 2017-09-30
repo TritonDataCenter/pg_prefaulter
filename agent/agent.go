@@ -297,7 +297,8 @@ func (a *Agent) getWALFiles() ([]pg.WALFilename, error) {
 			switch {
 			case pgErr.Code == "57P03" &&
 				(pgErr.Message == "the database system is starting up" ||
-					pgErr.Message == "the database system is in recovery mode"):
+					pgErr.Message == "the database system is in recovery mode" ||
+					pgErr.Message == "the database system is shutting down"):
 				// Help the system along when it's starting up or in recovery
 				processPSArgs = true
 			case pgErr.Code == "53300" &&
