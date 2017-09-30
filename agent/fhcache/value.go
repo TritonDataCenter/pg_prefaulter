@@ -39,6 +39,13 @@ func (fh *_Value) close() {
 	fh.lock.Lock()
 	defer fh.lock.Unlock()
 
+	// Guard against a partially filled cache entry.  It's possible that between
+	// acquiring a filehandle and opening the file, that an error could occur
+	// which would leave us with a cache entry with no open file descriptor.
+	if fh.f == nil {
+		return
+	}
+
 	if err := fh.f.Close(); err != nil {
 		log.Error().Err(err).Msg("unable to close FD")
 	}
