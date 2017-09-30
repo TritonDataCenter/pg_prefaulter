@@ -48,7 +48,7 @@ POSTGRES?=$(wildcard /usr/local/bin/postgres /opt/local/lib/postgresql$(PGVERSIO
 PSQL?=$(wildcard /usr/local/bin/psql /opt/local/lib/postgresql$(PGVERSION)/bin/psql /opt/local/bin/psql)
 PG_BASEBACKUP?=$(wildcard /usr/local/bin/pg_basebackup /opt/local/lib/postgresql$(PGVERSION)/bin/pg_basebackup /opt/local/bin/pg_basebackup)
 INITDB?=$(wildcard /usr/local/bin/initdb /opt/local/lib/postgresql$(PGVERSION)/bin/initdb /opt/local/bin/initdb)
-PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgresql$(PGVERSION)/bin/pg_controldata)
+PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgresql$(PGVERSION)/bin/pg_controldata /opt/local/bin/pg_controldata)
 PWFILE?=.pwfile
 
 GOPATH?=$(shell go env GOPATH)
@@ -56,6 +56,13 @@ PGDATA_PRIMARY?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_primary
 PGDATA_FOLLOWER?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_follower
 
 PGFOLLOWPORT=5433
+
+.PHONY: check-pg_controldata
+check-pg_controldata::
+	@if [ -z "$(PG_CONTROLDATA)" ]; then \
+		printf "pg_controldata(1) not found.  Check PostgreSQL installation or set PG_CONTROLDATA=/path/to/pg_controldata"; \
+		exit 1; \
+	fi
 
 .PHONY: check-initdb
 check-initdb::
@@ -174,7 +181,7 @@ createdb: check-psql ## 50 Create the test database
 	2>&1 PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" test -c 'CREATE TABLE garbage (s INT, md5 TEXT)' | tee -a test.log
 
 .PHONY: controldata
-controldata:: ## 70 Display pg_controldata(1) of the primary
+controldata:: check-pg_controldata ## 70 Display pg_controldata(1) of the primary
 	$(PG_CONTROLDATA) -D "$(PGDATA_PRIMARY)"
 
 .PHONY: gendata
