@@ -58,10 +58,6 @@ func FindWALFileFromPIDArgs(ctx context.Context, pids []PID) (walFilename pg.WAL
 			name: "pargs(1)",
 			fn:   findWALFileFromPIDArgsViaPArgs,
 		},
-		{
-			name: "ps(1)",
-			fn:   findWALFileFromPIDArgsViaPS,
-		},
 	}
 
 	for _, pidSearch := range searchFuncs {
