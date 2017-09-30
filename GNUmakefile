@@ -44,7 +44,7 @@ release-snapshot: ## 10 Build a snapshot release
 ### PostgreSQL-specific targets
 
 PGVERSION?=96
-POSTGRES?=$(wildcard /usr/local/bin/postgres /opt/local/lib/postgresql$(PGVERSION)/bin/postgres)
+POSTGRES?=$(wildcard /usr/local/bin/postgres /opt/local/lib/postgresql$(PGVERSION)/bin/postgres /opt/local/bin/postgres)
 PSQL?=$(wildcard /usr/local/bin/psql /opt/local/lib/postgresql$(PGVERSION)/bin/psql)
 PG_BASEBACKUP?=$(wildcard /usr/local/bin/pg_basebackup /opt/local/lib/postgresql$(PGVERSION)/bin/pg_basebackup)
 INITDB?=$(wildcard /usr/local/bin/initdb /opt/local/lib/postgresql$(PGVERSION)/bin/initdb /opt/local/bin/initdb)
@@ -63,7 +63,7 @@ $(PWFILE):
 .PHONY: freshdb-primary
 freshdb-primary:: cleandb-primary initdb-primary startdb-primary ## 30 Drops and recreates the primary database
 
-+.PHONY: initdb-check
+.PHONY: initdb-check
 initdb-check::
 	@if [ -z "$(INITDB)" ]; then \
 		printf "initdb(1) not found.  Check PostgreSQL installation or set INITDB=/path/to/initdb"; \
@@ -83,8 +83,15 @@ initdb-follower:: $(PWFILE) initdb-check ## 40 initdb(1) a follower database
 	env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PG_BASEBACKUP) -R -h localhost -D $(PGDATA_FOLLOWER) -P -U postgres --xlog-method=stream
 	mkdir -p $(PGDATA_FOLLOWER)/archive || true
 
+.PHONY: postgres-check
+postgres-check::
+	@if [ -z "$(POSTGRES)" ]; then \
+		printf "postgres(1) not found.  Check PostgreSQL installation or set POSTGRES=/path/to/postgres"; \
+		exit 1; \
+	fi
+
 .PHONY: startdb-primary
-startdb-primary:: ## 30 Start the primary database
+startdb-primary:: postgres-check ## 30 Start the primary database
 	2>&1 \
 	exec $(POSTGRES) \
 		-D "$(PGDATA_PRIMARY)" \
@@ -101,7 +108,7 @@ startdb-primary:: ## 30 Start the primary database
 	| tee -a postgresql-primary.log
 
 .PHONY: startdb-follower
-startdb-follower:: ## 40 Start the follower database
+startdb-follower:: postgres-check ## 40 Start the follower database
 	2>&1 \
 	exec nice -n 20 \
 	$(POSTGRES) \
