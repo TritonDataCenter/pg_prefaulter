@@ -237,6 +237,24 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 				continue
 			}
 
+			// NOTE(seanc@): PostgreSQL uses database ID 0 for some system catalog
+			// activity, notably CREATE DATABASE.
+			//
+			// rmgr: XLOG        len (rec/tot):     30/    30, tx:          0, lsn: 0/03000060, prev 0/03000028, desc: NEXTOID 24576
+			// rmgr: Heap        len (rec/tot):     54/  1222, tx:        995, lsn: 0/03000080, prev 0/03000060, desc: INSERT off 4, blkref #0: rel 1664/0/1262 blk 0 FPW
+			// rmgr: Btree       len (rec/tot):     53/   197, tx:        995, lsn: 0/03000548, prev 0/03000080, desc: INSERT_LEAF off 4, blkref #0: rel 1664/0/2671 blk 1 FPW
+			// rmgr: Btree       len (rec/tot):     53/   173, tx:        995, lsn: 0/03000610, prev 0/03000548, desc: INSERT_LEAF off 4, blkref #0: rel 1664/0/2672 blk 1 FPW
+			// rmgr: Standby     len (rec/tot):     54/    54, tx:          0, lsn: 0/030006C0, prev 0/03000610, desc: RUNNING_XACTS nextXid 996 latestCompletedXid 994 oldestRunningXid 995; 1 xacts: 995
+			// rmgr: XLOG        len (rec/tot):    106/   106, tx:          0, lsn: 0/030006F8, prev 0/030006C0, desc: CHECKPOINT_ONLINE redo 0/30006C0; tli 1; prev tli 1; fpw true; xid 0:996; oid 24576; multi 1; offset 0; oldest xid 988 in DB 1; oldest multi 1 in DB 1; oldest/newest commit timestamp xid: 0/0; oldest running xid 995; online
+			// rmgr: Database    len (rec/tot):     42/    42, tx:        995, lsn: 0/03000768, prev 0/030006F8, desc: CREATE copy dir 1/1663 to 16384/1663
+			// rmgr: Standby     len (rec/tot):     54/    54, tx:          0, lsn: 0/03000798, prev 0/03000768, desc: RUNNING_XACTS nextXid 996 latestCompletedXid 994 oldestRunningXid 995; 1 xacts: 995
+			// rmgr: XLOG        len (rec/tot):    106/   106, tx:          0, lsn: 0/030007D0, prev 0/03000798, desc: CHECKPOINT_ONLINE redo 0/3000798; tli 1; prev tli 1; fpw true; xid 0:996; oid 24576; multi 1; offset 0; oldest xid 988 in DB 1; oldest multi 1 in DB 1; oldest/newest commit timestamp xid: 0/0; oldest running xid 995; online
+			// rmgr: Transaction len (rec/tot):     66/    66, tx:        995, lsn: 0/03000840, prev 0/030007D0, desc: COMMIT 2017-09-30 17:23:38.416563 UTC; inval msgs: catcache 21; sync
+			// rmgr: Storage     len (rec/tot):     42/    42, tx:          0, lsn: 0/03000888, prev 0/03000840, desc: CREATE base/16384/16385
+			if database == 0 {
+				continue
+			}
+
 			relation, err := strconv.ParseUint(string(matches[3]), 10, 64)
 			if err != nil {
 				log.Error().Err(err).Str("input", string(matches[3])).Msg("unable to convert relation")
