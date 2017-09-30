@@ -88,15 +88,6 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics) 
 			defer fhCacheValue.close()
 
 			fhc.metrics.Increment(config.MetricsSysCloseCount)
-
-			closeCount := atomic.LoadUint64(&closeFDCount)
-			openCount := atomic.LoadUint64(&openFDCount)
-			if openCount != closeCount {
-				// Open vs close accountancy errors are considered fatal
-				log.Panic().
-					Uint64("close-count", closeCount).Uint64("open-count", openCount).
-					Msgf("bad, open vs close count not the same after purge")
-			}
 		}).
 		Build()
 
@@ -196,4 +187,13 @@ func (fhc *FileHandleCache) Purge() {
 	defer fhc.purgeLock.Unlock()
 
 	fhc.c.Purge()
+
+	closeCount := atomic.LoadUint64(&closeFDCount)
+	openCount := atomic.LoadUint64(&openFDCount)
+	if openCount != closeCount {
+		// Open vs close accountancy errors are considered fatal
+		log.Panic().
+			Uint64("close-count", closeCount).Uint64("open-count", openCount).
+			Msgf("bad, open vs close count not the same after purge")
+	}
 }
