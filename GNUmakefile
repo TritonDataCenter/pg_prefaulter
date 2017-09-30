@@ -46,7 +46,7 @@ release-snapshot: ## 10 Build a snapshot release
 PGVERSION?=96
 POSTGRES?=$(wildcard /usr/local/bin/postgres /opt/local/lib/postgresql$(PGVERSION)/bin/postgres /opt/local/bin/postgres)
 PSQL?=$(wildcard /usr/local/bin/psql /opt/local/lib/postgresql$(PGVERSION)/bin/psql)
-PG_BASEBACKUP?=$(wildcard /usr/local/bin/pg_basebackup /opt/local/lib/postgresql$(PGVERSION)/bin/pg_basebackup)
+PG_BASEBACKUP?=$(wildcard /usr/local/bin/pg_basebackup /opt/local/lib/postgresql$(PGVERSION)/bin/pg_basebackup /opt/local/bin/pg_basebackup)
 INITDB?=$(wildcard /usr/local/bin/initdb /opt/local/lib/postgresql$(PGVERSION)/bin/initdb /opt/local/bin/initdb)
 PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgresql$(PGVERSION)/bin/pg_controldata)
 PWFILE?=.pwfile
@@ -56,6 +56,13 @@ PGDATA_PRIMARY?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_primary
 PGDATA_FOLLOWER?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_follower
 
 PGFOLLOWPORT=5433
+
+.PHONY: check-pg_basebackup
+check-pg_basebackup::
+	@if [ -z "$(PG_BASEBACKUP)" ]; then \
+		printf "pg_basebackup(1) not found.  Check PostgreSQL installation or set PG_BASEBACKUP=/path/to/pg_basebackup"; \
+		exit 1; \
+	fi
 
 $(PWFILE):
 	-cat /dev/urandom | strings | grep -o '[[:alnum:]]' | head -n 32 | tr -d '\n' > $@
@@ -79,7 +86,7 @@ initdb-primary:: $(PWFILE) initdb-check ## 30 initdb(1) a primary database
 	echo "host    replication     postgres        ::1/128                 md5" >> $(PGDATA_PRIMARY)/pg_hba.conf
 
 .PHONY: initdb-follower
-initdb-follower:: $(PWFILE) initdb-check ## 40 initdb(1) a follower database
+initdb-follower:: $(PWFILE) check-pg_basebackup ## 40 initdb(1) a follower database
 	env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PG_BASEBACKUP) -R -h localhost -D $(PGDATA_FOLLOWER) -P -U postgres --xlog-method=stream
 	mkdir -p $(PGDATA_FOLLOWER)/archive || true
 
