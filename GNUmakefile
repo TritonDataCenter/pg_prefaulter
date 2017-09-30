@@ -52,7 +52,8 @@ PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgres
 PWFILE?=.pwfile
 
 PGBENCH?=$(wildcard /usr/local/bin/pgbench /opt/local/lib/postgresql$(PGVERSION)/bin/pgbench /opt/local/bin/pgbench)
-PGBENCH_ARGS?=-j 32 -P 60 -r -T 900
+PGBENCH_ARGS?=-j 64 -P 60 -r -T 900
+PGBENCH_INIT_ARGS?=-i -s 10 -F 90
 
 GOPATH?=$(shell go env GOPATH)
 PGDATA_PRIMARY?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_primary
@@ -179,7 +180,7 @@ testdb:: check resetdb ## 50 Run database tests
 
 .PHONY: pgbench-init
 pgbench-init:: check-pgbench ## 60 Initialize pgbench
-	2>&1 env PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PGBENCH)" -i
+	2>&1 env PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PGBENCH)" -i $(PGBENCH_INIT_ARGS)
 
 .PHONY: pgbench
 pgbench:: check-pgbench ## 60 Run pgbench(1)
