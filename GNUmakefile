@@ -47,7 +47,7 @@ PGVERSION?=96
 POSTGRES?=$(wildcard /usr/local/bin/postgres /opt/local/lib/postgresql$(PGVERSION)/bin/postgres)
 PSQL?=$(wildcard /usr/local/bin/psql /opt/local/lib/postgresql$(PGVERSION)/bin/psql)
 PG_BASEBACKUP?=$(wildcard /usr/local/bin/pg_basebackup /opt/local/lib/postgresql$(PGVERSION)/bin/pg_basebackup)
-INITDB?=$(wildcard /usr/local/bin/initdb /opt/local/lib/postgresql$(PGVERSION)/bin/initdb)
+INITDB?=$(wildcard /usr/local/bin/initdb /opt/local/lib/postgresql$(PGVERSION)/bin/initdb /opt/local/bin/initdb)
 PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgresql$(PGVERSION)/bin/pg_controldata)
 PWFILE?=.pwfile
 
@@ -63,8 +63,15 @@ $(PWFILE):
 .PHONY: freshdb-primary
 freshdb-primary:: cleandb-primary initdb-primary startdb-primary ## 30 Drops and recreates the primary database
 
++.PHONY: initdb-check
+initdb-check::
+	@if [ -z "$(INITDB)" ]; then \
+		printf "initdb(1) not found.  Check PostgreSQL installation or set INITDB=/path/to/initdb"; \
+		exit 1; \
+	fi
+
 .PHONY: initdb-primary
-initdb-primary:: $(PWFILE) ## 30 initdb(1) a primary database
+initdb-primary:: $(PWFILE) initdb-check ## 30 initdb(1) a primary database
 	$(INITDB) --no-locale -U postgres -A md5 --pwfile="$(PWFILE)" -D "$(PGDATA_PRIMARY)"
 	mkdir -p $(PGDATA_PRIMARY) $(PGDATA_FOLLOWER) || true
 	echo "local   replication     postgres                                md5" >> $(PGDATA_PRIMARY)/pg_hba.conf
@@ -72,7 +79,7 @@ initdb-primary:: $(PWFILE) ## 30 initdb(1) a primary database
 	echo "host    replication     postgres        ::1/128                 md5" >> $(PGDATA_PRIMARY)/pg_hba.conf
 
 .PHONY: initdb-follower
-initdb-follower:: ## 40 initdb(1) a follower database
+initdb-follower:: $(PWFILE) initdb-check ## 40 initdb(1) a follower database
 	env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PG_BASEBACKUP) -R -h localhost -D $(PGDATA_FOLLOWER) -P -U postgres --xlog-method=stream
 	mkdir -p $(PGDATA_FOLLOWER)/archive || true
 
