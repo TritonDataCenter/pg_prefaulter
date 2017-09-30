@@ -30,7 +30,14 @@ type PID uint
 
 // FindChildPIDs finds the child PIDs of a given process
 func FindChildPIDs(ctx context.Context, pid PID) ([]PID, error) {
-	pgrepOut, err := exec.CommandContext(ctx, "pgrep", "-P",
+	// FIXME(seanc@): The call to exec.LookPath("pgrep") should probably be
+	// performed at process startup and cached.
+	pgrepPath, err := exec.LookPath("pgrep")
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to find pgrep(1)")
+	}
+
+	pgrepOut, err := exec.CommandContext(ctx, pgrepPath, "-P",
 		strconv.FormatUint(uint64(pid), 10)).Output()
 	if err != nil {
 		if cErr, ok := err.(*exec.ExitError); ok {
@@ -81,7 +88,12 @@ func findWALFileFromPIDArgsViaPS(ctx context.Context, pids []PID) (pg.WALFilenam
 	// exec.LookPath("ps") and use the value found at process startup time.  And
 	// if ps(1) can't be found because PATH isn't set, we should complain bitterly
 	// and likely exit.
-	psOut, err := exec.CommandContext(ctx, "ps", "-o", "command", "-p", strings.Join(pidStr, ",")).Output()
+	psPath, err := exec.LookPath("ps")
+	if err != nil {
+		return "", errors.Wrap(err, "unable to find ps(1)")
+	}
+
+	psOut, err := exec.CommandContext(ctx, psPath, "-o", "command", "-p", strings.Join(pidStr, ",")).Output()
 	if err != nil {
 		return "", errors.Wrap(err, "unable to exec ps(1) args")
 	}
