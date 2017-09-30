@@ -51,6 +51,9 @@ INITDB?=$(wildcard /usr/local/bin/initdb /opt/local/lib/postgresql$(PGVERSION)/b
 PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgresql$(PGVERSION)/bin/pg_controldata /opt/local/bin/pg_controldata)
 PWFILE?=.pwfile
 
+PGBENCH?=$(wildcard /usr/local/bin/pgbench /opt/local/lib/postgresql$(PGVERSION)/bin/pgbench /opt/local/bin/pgbench)
+PGBENCH_ARGS?=-j 32 -P 60 -r -T 900
+
 GOPATH?=$(shell go env GOPATH)
 PGDATA_PRIMARY?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_primary
 PGDATA_FOLLOWER?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_follower
@@ -75,6 +78,13 @@ check-initdb::
 check-pg_basebackup::
 	@if [ -z "$(PG_BASEBACKUP)" ]; then \
 		printf "pg_basebackup(1) not found.  Check PostgreSQL installation or set PG_BASEBACKUP=/path/to/pg_basebackup"; \
+		exit 1; \
+	fi
+
+.PHONY: check-pgbench
+check-pgbench::
+	@if [ -z "$(PGBENCH)" ]; then \
+		printf "pgbench(1) not found.  Check PostgreSQL installation or set PGBENCH=/path/to/pgbench"; \
 		exit 1; \
 	fi
 
@@ -166,6 +176,14 @@ freshdb-follower:: cleandb-follower initdb-follower startdb-follower ## 40 Drops
 
 .PHONY: testdb
 testdb:: check resetdb ## 50 Run database tests
+
+.PHONY: pgbench-init
+pgbench-init:: check-pgbench ## 60 Initialize pgbench
+	2>&1 env PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PGBENCH)" -i
+
+.PHONY: pgbench
+pgbench:: check-pgbench ## 60 Run pgbench(1)
+	2>&1 env PGSSLMODE=disable PGHOST=/tmp PGUSER=postgres PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PGBENCH)" $(PGBENCH_ARGS)
 
 .PHONY: resetdb
 resetdb:: check-psql dropdb createdb gendata ## 50 Drop and recreate the database
