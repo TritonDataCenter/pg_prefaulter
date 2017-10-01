@@ -144,7 +144,7 @@ func NewDefault() (*Config, error) {
 	fhConfig := FHCacheConfig{}
 	{
 		const (
-			defaultTTL          = 3600 * time.Second
+			defaultTTL          = 300 * time.Second
 			numReservedFDs uint = 50
 		)
 

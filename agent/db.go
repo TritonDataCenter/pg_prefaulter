@@ -48,7 +48,6 @@ const (
 	metricsDBVersionPG           = "version-pg"
 	metricsDBWALCount            = "num-wal-files"
 	metricsWALFileCandidate      = "num-wal-candidates"
-	metricsWALLookupMode         = "agent-wal-lookup-mode"
 	metricsVersionSelfCommit     = "version-self-commit"
 	metricsVersionSelfDate       = "version-self-date"
 	metricsVersionSelfVersion    = "version-self-version"
@@ -229,6 +228,8 @@ func (a *Agent) getWALFilesDB() ([]pg.WALFilename, error) {
 		return walFiles, err
 	}
 
+	a.metrics.SetTextValue(proc.MetricsWALLookupMode, "db")
+
 	return walFiles, nil
 }
 
@@ -303,16 +304,16 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (units.Base2Bytes, error) {
 		// missing on a shard member.
 		switch lagQuery {
 		case _QueryLagPrimary:
-			a.metrics.RecordValue(metricsDBLagDurability, durabilityLag)
+			a.metrics.Gauge(metricsDBLagDurability, durabilityLag)
 			a.metrics.Gauge(metricsDBLagDurabilityBytes, durabilityLag)
-			a.metrics.RecordValue(metricsDBLagFlush, flushLag)
+			a.metrics.Gauge(metricsDBLagFlush, flushLag)
 			a.metrics.Gauge(metricsDBLagFlushBytes, flushLag)
 		case _QueryLagFollower:
-			a.metrics.RecordValue(metricsDBLastTransaction, txnAge)
+			a.metrics.Gauge(metricsDBLastTransaction, txnAge)
 			a.metrics.Gauge(metricsDBLastTransactionAge, txnAge)
 		}
 
-		a.metrics.RecordValue(metricsDBLagVisibility, visibilityLag)
+		a.metrics.Gauge(metricsDBLagVisibility, visibilityLag)
 		a.metrics.Gauge(metricsDBLagVisibilityBytes, visibilityLag)
 		a.metrics.SetTextValue(metricsDBPeerSyncState, syncState)
 		a.metrics.SetTextValue(metricsDBSenderState, senderState)

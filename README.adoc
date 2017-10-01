@@ -22,6 +22,12 @@ and schedules concurrent IOs in order to prefault PostgreSQL heap pages into the
 follower's filesystem cache.  The effect of this is dramatic in that the
 follower is able to apply pages with a filesystem cache-hit.
 
+`pg_prefaulter` is also smart enough to pull the WAL file from process arguments
+which allows `pg_prefaulter` to prefault pages in order to accelerate the
+recovery and startup time of PostgreSQL.  If you've ever sat twiddling your
+thumbs waiting for the database to start up, `pg_prefaulter` should improve the
+startup time of PostgreSQL.
+
 If you've seen replication lag due to
 https://github.com/reorg/pg_repack/[`pg_repack`],
 https://www.postgresql.org/docs/current/static/sql-vacuum.html[`VACUUM`], or a

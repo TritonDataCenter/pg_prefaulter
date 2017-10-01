@@ -30,6 +30,7 @@ import (
 	"github.com/jackc/pgx"
 	"github.com/joyent/pg_prefaulter/agent/fhcache"
 	"github.com/joyent/pg_prefaulter/agent/iocache"
+	"github.com/joyent/pg_prefaulter/agent/proc"
 	"github.com/joyent/pg_prefaulter/agent/walcache"
 	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/joyent/pg_prefaulter/config"
@@ -277,13 +278,13 @@ func (a *Agent) Wait() error {
 // FIXME(seanc@): Create a WALFaulter interface that can be DB-backed or
 // process-arg backed.
 func (a *Agent) getWALFiles() ([]pg.WALFilename, error) {
-	var walFileLookupMode string = "error"
-	defer func() { a.metrics.SetTextValue(metricsWALLookupMode, walFileLookupMode) }()
+	// Rely on getWALFilesDB() or getWALFilesProcArgs() to update this value
+	a.metrics.SetTextValue(proc.MetricsWALLookupMode, "error")
+
 	var dbErr error
 	var walFiles []pg.WALFilename
 	walFiles, dbErr = a.getWALFilesDB()
 	if dbErr == nil {
-		walFileLookupMode = "db"
 		return walFiles, nil
 	}
 
@@ -297,7 +298,8 @@ func (a *Agent) getWALFiles() ([]pg.WALFilename, error) {
 			switch {
 			case pgErr.Code == "57P03" &&
 				(pgErr.Message == "the database system is starting up" ||
-					pgErr.Message == "the database system is in recovery mode"):
+					pgErr.Message == "the database system is in recovery mode" ||
+					pgErr.Message == "the database system is shutting down"):
 				// Help the system along when it's starting up or in recovery
 				processPSArgs = true
 			case pgErr.Code == "53300" &&
@@ -327,10 +329,11 @@ func (a *Agent) getWALFiles() ([]pg.WALFilename, error) {
 	if processPSArgs {
 		var psErr error
 		walFiles, psErr = a.getWALFilesProcArgs()
-		if psErr == nil {
-			walFileLookupMode = "ps"
-		} else {
-			return nil, fmt.Errorf("unable to query the DB (%+v) or ps args (%+v)", dbErr, psErr)
+		if psErr != nil {
+			// Return a retriable error since processPSArgs returned true indicating
+			// the database was starting up.
+			raisedErr := fmt.Errorf("unable to query the DB (%+v) or process arguments (%+v)", dbErr, psErr)
+			return nil, newWALError(raisedErr, true, true)
 		}
 	}
 

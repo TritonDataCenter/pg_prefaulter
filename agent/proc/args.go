@@ -25,9 +25,20 @@ import (
 
 type PID uint
 
+const (
+	MetricsWALLookupMode = "agent-wal-lookup-mode"
+)
+
 // FindChildPIDs finds the child PIDs of a given process
 func FindChildPIDs(ctx context.Context, pid PID) ([]PID, error) {
-	pgrepOut, err := exec.CommandContext(ctx, "pgrep", "-P",
+	// FIXME(seanc@): The call to exec.LookPath("pgrep") should probably be
+	// performed at process startup and cached.
+	pgrepPath, err := exec.LookPath("pgrep")
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to find pgrep(1)")
+	}
+
+	pgrepOut, err := exec.CommandContext(ctx, pgrepPath, "-P",
 		strconv.FormatUint(uint64(pid), 10)).Output()
 	if err != nil {
 		if cErr, ok := err.(*exec.ExitError); ok {
