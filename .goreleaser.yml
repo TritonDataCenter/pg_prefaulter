@@ -76,7 +76,7 @@ archive:
     - LICENSE
     - README.adoc
     - pg_prefaulter.toml.sample
-    - pg_prefaulter.toml.sample-all
+    - pg_prefaulter.defaults.toml
 
 release:
   # Repo in which the release will be created.
