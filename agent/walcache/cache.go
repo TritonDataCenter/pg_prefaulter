@@ -15,9 +15,9 @@ package walcache
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math"
 	"os"
@@ -116,15 +116,11 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 						// If we had a problem prefaulting in the WAL file, for whatever
 						// reason, attempt to remove it from the cache.
 						wc.c.Remove(walFile)
-
-						log.Error().Int("wal-worker-thread-id", threadID).Err(err).
-							Str("wal filename", string(walFile)).
-							Msg("unable to prefault WAL file")
 					} else {
 						wc.metrics.Increment(config.MetricsWALFaultCount)
 					}
 
-					wc.metrics.RecordValue(config.MetricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
+					wc.metrics.Gauge(config.MetricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
 				}
 			}
 		}(walWorker)
@@ -189,19 +185,120 @@ func (wc *WALCache) Wait() {
 // handled by the ioCache.
 func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	re := wc.re.Copy()
-	var linesMatched, linesScanned, walFilesProcessed uint64
+	var linesMatched, linesScanned, walFilesProcessed, xlogdumpBytes uint64
 
 	walFileAbs := path.Join(wc.cfg.PGDataPath, "pg_xlog", string(walFile))
 	_, err = os.Stat(walFileAbs)
 	if err != nil {
-		log.Debug().Err(err).Str("walfile", string(walFile)).Msg("stat")
+		// log.Debug().Err(err).Str("walfile", string(walFile)).Msg("stat")
 		return errors.Wrap(err, "WAL file does not exist")
 	}
 
-	var pgDumpXLOGOut []byte
-	cmd := exec.CommandContext(wc.ctx, wc.cfg.XLogDumpPath, walFileAbs)
+	cmd := exec.CommandContext(wc.ctx, wc.cfg.XLogDumpPath, "-f", walFileAbs)
 	cmd.Stderr = ioutil.Discard
-	pgDumpXLOGOut, err = cmd.Output()
+
+	var dumpOutReader io.ReadCloser
+	dumpOutReader, err = cmd.StdoutPipe()
+	if err != nil {
+		return errors.Wrap(err, "unable to open stdout for pg_xlogdump(1)")
+	}
+	if err := cmd.Start(); err != nil {
+		return errors.Wrap(err, "unable to read from pg_xlogdump(1)")
+	}
+
+	scanner := bufio.NewScanner(dumpOutReader)
+	go func() {
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			xlogdumpBytes += uint64(len(line))
+			linesScanned++
+			submatches := re.FindAllSubmatch(line, -1)
+			if submatches == nil {
+				continue
+			}
+
+			linesMatched++
+
+			for _, matches := range submatches {
+				tablespace, err := strconv.ParseUint(string(matches[1]), 10, 64)
+				if err != nil {
+					log.Error().Err(err).Str("input", string(matches[1])).Msg("unable to convert tablespace")
+					continue
+				}
+
+				database, err := strconv.ParseUint(string(matches[2]), 10, 64)
+				if err != nil {
+					log.Error().Err(err).Str("input", string(matches[2])).Msg("unable to convert database")
+					continue
+				}
+
+				// NOTE(seanc@): PostgreSQL uses database ID 0 for some system catalog
+				// activity, notably CREATE DATABASE.
+				//
+				// rmgr: XLOG        len (rec/tot):     30/    30, tx:          0, lsn: 0/03000060, prev 0/03000028, desc: NEXTOID 24576
+				// rmgr: Heap        len (rec/tot):     54/  1222, tx:        995, lsn: 0/03000080, prev 0/03000060, desc: INSERT off 4, blkref #0: rel 1664/0/1262 blk 0 FPW
+				// rmgr: Btree       len (rec/tot):     53/   197, tx:        995, lsn: 0/03000548, prev 0/03000080, desc: INSERT_LEAF off 4, blkref #0: rel 1664/0/2671 blk 1 FPW
+				// rmgr: Btree       len (rec/tot):     53/   173, tx:        995, lsn: 0/03000610, prev 0/03000548, desc: INSERT_LEAF off 4, blkref #0: rel 1664/0/2672 blk 1 FPW
+				// rmgr: Standby     len (rec/tot):     54/    54, tx:          0, lsn: 0/030006C0, prev 0/03000610, desc: RUNNING_XACTS nextXid 996 latestCompletedXid 994 oldestRunningXid 995; 1 xacts: 995
+				// rmgr: XLOG        len (rec/tot):    106/   106, tx:          0, lsn: 0/030006F8, prev 0/030006C0, desc: CHECKPOINT_ONLINE redo 0/30006C0; tli 1; prev tli 1; fpw true; xid 0:996; oid 24576; multi 1; offset 0; oldest xid 988 in DB 1; oldest multi 1 in DB 1; oldest/newest commit timestamp xid: 0/0; oldest running xid 995; online
+				// rmgr: Database    len (rec/tot):     42/    42, tx:        995, lsn: 0/03000768, prev 0/030006F8, desc: CREATE copy dir 1/1663 to 16384/1663
+				// rmgr: Standby     len (rec/tot):     54/    54, tx:          0, lsn: 0/03000798, prev 0/03000768, desc: RUNNING_XACTS nextXid 996 latestCompletedXid 994 oldestRunningXid 995; 1 xacts: 995
+				// rmgr: XLOG        len (rec/tot):    106/   106, tx:          0, lsn: 0/030007D0, prev 0/03000798, desc: CHECKPOINT_ONLINE redo 0/3000798; tli 1; prev tli 1; fpw true; xid 0:996; oid 24576; multi 1; offset 0; oldest xid 988 in DB 1; oldest multi 1 in DB 1; oldest/newest commit timestamp xid: 0/0; oldest running xid 995; online
+				// rmgr: Transaction len (rec/tot):     66/    66, tx:        995, lsn: 0/03000840, prev 0/030007D0, desc: COMMIT 2017-09-30 17:23:38.416563 UTC; inval msgs: catcache 21; sync
+				// rmgr: Storage     len (rec/tot):     42/    42, tx:          0, lsn: 0/03000888, prev 0/03000840, desc: CREATE base/16384/16385
+				if database == 0 {
+					continue
+				}
+
+				relation, err := strconv.ParseUint(string(matches[3]), 10, 64)
+				if err != nil {
+					log.Error().Err(err).Str("input", string(matches[3])).Msg("unable to convert relation")
+					continue
+				}
+
+				block, err := strconv.ParseUint(string(matches[4]), 10, 64)
+				if err != nil {
+					log.Error().Err(err).Str("input", string(matches[4])).Msg("unable to convert block")
+					continue
+				}
+
+				// Send all IOs through the non-blocking cache interface.  Leave it up to
+				// the ARC cache to deal with the influx of go routines which will get
+				// scheduled and rate limited behind the ioCache.  If this ends up
+				// becoming a problem we could throttle the requests into the cache, but I
+				// really hope that's not something we need to do.
+				//
+				// Worst case is we flood the ioCache with requests and then block on the
+				// next WALfile.  Because the max number of pages per WAL file is finite
+				// (16MiB/8KiB == ~2K), at most we should have 2K threads running *
+				// KeyWALReadahead.  That's very survivable for now but can be optimized
+				// if necessary.
+				ioCacheKey := structs.IOCacheKey{
+					Tablespace: pg.OID(tablespace),
+					Database:   pg.OID(database),
+					Relation:   pg.OID(relation),
+					Block:      pg.HeapBlockNumber(block),
+				}
+				_, err = wc.ioCache.GetIFPresent(ioCacheKey)
+				switch {
+				case err == nil:
+				case err == gcache.KeyNotFoundError:
+					// cache miss, an IO has been scheduled in the background.
+				case err != nil:
+					log.Debug().Err(err).Msg("iocache prefaultWALFile()")
+				}
+			}
+		}
+
+		// Call it a success if we found at least one matching line
+		if linesMatched > 0 {
+			walFilesProcessed++
+		}
+	}()
+
+	if err = scanner.Err(); err != nil {
+		log.Warn().Err(err).Msg("scanning output")
+	}
 
 	// pg_xlogdump(1) can return 1 when it has problems decoding output.  Notably
 	// this can occur with corrupt or records that can't be parsed fully.  For
@@ -209,106 +306,21 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	//
 	// pg_xlogdump: FATAL:  error in WAL record at C/A15FD930: record with incorrect prev-link 61313664/37303561 at C/A15FD968
 	//
-	// As such, only bail if we have an error and there wasn't any stdout output.
-	if len(pgDumpXLOGOut) == 0 && err != nil {
+	// As such, only bail if we have an error and we didn't process any records.
+	if err := cmd.Wait(); err != nil && walFilesProcessed == 0 {
 		log.Debug().Err(err).Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).Str("walfile", walFileAbs).Msg("pg_xlogdump execve(2) failed")
-		return errors.Wrapf(err, "unable to run %q", wc.cfg.XLogDumpPath)
-	}
-
-	scanner := bufio.NewScanner(bytes.NewReader(pgDumpXLOGOut))
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		linesScanned++
-		submatches := re.FindAllSubmatch(line, -1)
-		if submatches != nil {
-			linesMatched++
-		}
-
-		for _, matches := range submatches {
-			tablespace, err := strconv.ParseUint(string(matches[1]), 10, 64)
-			if err != nil {
-				log.Error().Err(err).Str("input", string(matches[1])).Msg("unable to convert tablespace")
-				continue
-			}
-
-			database, err := strconv.ParseUint(string(matches[2]), 10, 64)
-			if err != nil {
-				log.Error().Err(err).Str("input", string(matches[2])).Msg("unable to convert database")
-				continue
-			}
-
-			// NOTE(seanc@): PostgreSQL uses database ID 0 for some system catalog
-			// activity, notably CREATE DATABASE.
-			//
-			// rmgr: XLOG        len (rec/tot):     30/    30, tx:          0, lsn: 0/03000060, prev 0/03000028, desc: NEXTOID 24576
-			// rmgr: Heap        len (rec/tot):     54/  1222, tx:        995, lsn: 0/03000080, prev 0/03000060, desc: INSERT off 4, blkref #0: rel 1664/0/1262 blk 0 FPW
-			// rmgr: Btree       len (rec/tot):     53/   197, tx:        995, lsn: 0/03000548, prev 0/03000080, desc: INSERT_LEAF off 4, blkref #0: rel 1664/0/2671 blk 1 FPW
-			// rmgr: Btree       len (rec/tot):     53/   173, tx:        995, lsn: 0/03000610, prev 0/03000548, desc: INSERT_LEAF off 4, blkref #0: rel 1664/0/2672 blk 1 FPW
-			// rmgr: Standby     len (rec/tot):     54/    54, tx:          0, lsn: 0/030006C0, prev 0/03000610, desc: RUNNING_XACTS nextXid 996 latestCompletedXid 994 oldestRunningXid 995; 1 xacts: 995
-			// rmgr: XLOG        len (rec/tot):    106/   106, tx:          0, lsn: 0/030006F8, prev 0/030006C0, desc: CHECKPOINT_ONLINE redo 0/30006C0; tli 1; prev tli 1; fpw true; xid 0:996; oid 24576; multi 1; offset 0; oldest xid 988 in DB 1; oldest multi 1 in DB 1; oldest/newest commit timestamp xid: 0/0; oldest running xid 995; online
-			// rmgr: Database    len (rec/tot):     42/    42, tx:        995, lsn: 0/03000768, prev 0/030006F8, desc: CREATE copy dir 1/1663 to 16384/1663
-			// rmgr: Standby     len (rec/tot):     54/    54, tx:          0, lsn: 0/03000798, prev 0/03000768, desc: RUNNING_XACTS nextXid 996 latestCompletedXid 994 oldestRunningXid 995; 1 xacts: 995
-			// rmgr: XLOG        len (rec/tot):    106/   106, tx:          0, lsn: 0/030007D0, prev 0/03000798, desc: CHECKPOINT_ONLINE redo 0/3000798; tli 1; prev tli 1; fpw true; xid 0:996; oid 24576; multi 1; offset 0; oldest xid 988 in DB 1; oldest multi 1 in DB 1; oldest/newest commit timestamp xid: 0/0; oldest running xid 995; online
-			// rmgr: Transaction len (rec/tot):     66/    66, tx:        995, lsn: 0/03000840, prev 0/030007D0, desc: COMMIT 2017-09-30 17:23:38.416563 UTC; inval msgs: catcache 21; sync
-			// rmgr: Storage     len (rec/tot):     42/    42, tx:          0, lsn: 0/03000888, prev 0/03000840, desc: CREATE base/16384/16385
-			if database == 0 {
-				continue
-			}
-
-			relation, err := strconv.ParseUint(string(matches[3]), 10, 64)
-			if err != nil {
-				log.Error().Err(err).Str("input", string(matches[3])).Msg("unable to convert relation")
-				continue
-			}
-
-			block, err := strconv.ParseUint(string(matches[4]), 10, 64)
-			if err != nil {
-				log.Error().Err(err).Str("input", string(matches[4])).Msg("unable to convert block")
-				continue
-			}
-
-			// Send all IOs through the non-blocking cache interface.  Leave it up to
-			// the ARC cache to deal with the influx of go routines which will get
-			// scheduled and rate limited behind the ioCache.  If this ends up
-			// becoming a problem we could throttle the requests into the cache, but I
-			// really hope that's not something we need to do.
-			//
-			// Worst case is we flood the ioCache with requests and then block on the
-			// next WALfile.  Because the max number of pages per WAL file is finite
-			// (16MiB/8KiB == ~2K), at most we should have 2K threads running *
-			// KeyWALReadahead.  That's very survivable for now but can be optimized
-			// if necessary.
-			ioCacheKey := structs.IOCacheKey{
-				Tablespace: pg.OID(tablespace),
-				Database:   pg.OID(database),
-				Relation:   pg.OID(relation),
-				Block:      pg.HeapBlockNumber(block),
-			}
-			_, err = wc.ioCache.GetIFPresent(ioCacheKey)
-			switch {
-			case err == nil:
-			case err == gcache.KeyNotFoundError:
-				// cache miss, an IO has been scheduled in the background.
-			case err != nil:
-				log.Debug().Err(err).Msg("iocache prefaultWALFile()")
-			}
-		}
-	}
-	if err = scanner.Err(); err != nil {
-		log.Warn().Err(err).Msg("scanning output")
+		return errors.Wrapf(err, "pg_xlogdump(1) returned uncleanly when reading %+q or running %+q", walFileAbs, wc.cfg.XLogDumpPath)
 	}
 
 	// For whatever reason pg_xlogdump(1) succeeded but produced no output
-	if len(pgDumpXLOGOut) > 0 {
-		walFilesProcessed++
-	} else {
-		log.Warn().Str("out", string(pgDumpXLOGOut)).Msgf("unable to process WAL file: %+q", pgDumpXLOGOut)
+	if walFilesProcessed == 0 {
+		log.Debug().Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).Str("walfile", walFileAbs).Msg("Unprocessable WAL output")
 	}
 
+	wc.metrics.Add(config.MetricsXLogDumpLen, xlogdumpBytes)
+	wc.metrics.Add(config.MetricsXLogDumpLinesMatched, linesMatched)
+	wc.metrics.Add(config.MetricsXLogDumpLinesScanned, linesScanned)
 	wc.metrics.Add(config.MetricsXLogPrefaulted, walFilesProcessed)
-	wc.metrics.RecordValue(config.MetricsXLogDumpLen, float64(len(pgDumpXLOGOut)))
-	wc.metrics.RecordValue(config.MetricsXLogDumpLinesMatched, float64(linesMatched))
-	wc.metrics.RecordValue(config.MetricsXLogDumpLinesScanned, float64(linesScanned))
 
 	return nil
 }
