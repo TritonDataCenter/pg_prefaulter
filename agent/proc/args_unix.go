@@ -24,14 +24,15 @@ import (
 	"strconv"
 	"strings"
 
+	cgm "github.com/circonus-labs/circonus-gometrics"
 	"github.com/joyent/pg_prefaulter/pg"
 	"github.com/pkg/errors"
 )
 
 // FindWALFileFromPIDArgs searches a slice of PIDs to find the WAL filename
 // being currently processed.
-func FindWALFileFromPIDArgs(ctx context.Context, pids []PID) (pg.WALFilename, error) {
-	return findWALFileFromPIDArgsViaPS(ctx, pids)
+func FindWALFileFromPIDArgs(ctx context.Context, pids []PID, metrics *cgm.CirconusMetrics) (pg.WALFilename, error) {
+	return findWALFileFromPIDArgsViaPS(ctx, pids, metrics)
 }
 
 // $ ps -o command -p 13635,13636,13637,35959
@@ -44,7 +45,7 @@ var psRE = regexp.MustCompile(`^postgres: startup process[\s]+recovering[\s]+([0
 
 // findWALFileFromPIDArgsViaPS searches a slice of PIDs to find the WAL filename
 // being currently processed by using the ps(1) command.
-func findWALFileFromPIDArgsViaPS(ctx context.Context, pids []PID) (pg.WALFilename, error) {
+func findWALFileFromPIDArgsViaPS(ctx context.Context, pids []PID, metrics *cgm.CirconusMetrics) (pg.WALFilename, error) {
 	pidStr := make([]string, len(pids))
 	for i, pid := range pids {
 		pidStr[i] = strconv.FormatUint(uint64(pid), 10)
@@ -81,5 +82,6 @@ func findWALFileFromPIDArgsViaPS(ctx context.Context, pids []PID) (pg.WALFilenam
 		return "", errors.Wrap(err, "unable to extract PostgreSQL WAL segment from ps(1) args")
 	}
 
+	metrics.SetTextValue(MetricsWALLookupMode, "ps(1)")
 	return pg.WALFilename(walSegment), nil
 }

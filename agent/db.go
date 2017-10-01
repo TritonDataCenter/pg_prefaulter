@@ -48,7 +48,6 @@ const (
 	metricsDBVersionPG           = "version-pg"
 	metricsDBWALCount            = "num-wal-files"
 	metricsWALFileCandidate      = "num-wal-candidates"
-	metricsWALLookupMode         = "agent-wal-lookup-mode"
 	metricsVersionSelfCommit     = "version-self-commit"
 	metricsVersionSelfDate       = "version-self-date"
 	metricsVersionSelfVersion    = "version-self-version"
@@ -228,6 +227,8 @@ func (a *Agent) getWALFilesDB() ([]pg.WALFilename, error) {
 		log.Debug().Err(err).Msg("unable to predict DB WAL filenames")
 		return walFiles, err
 	}
+
+	a.metrics.SetTextValue(proc.MetricsWALLookupMode, "db")
 
 	return walFiles, nil
 }

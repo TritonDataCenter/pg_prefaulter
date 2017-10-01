@@ -34,7 +34,7 @@ func (a *Agent) getWALFilesProcArgs() (walFiles []pg.WALFilename, err error) {
 		return nil, errors.Wrap(err, "unable to find any PostgreSQL child processes")
 	}
 
-	walFile, err := proc.FindWALFileFromPIDArgs(a.shutdownCtx, childPIDs)
+	walFile, err := proc.FindWALFileFromPIDArgs(a.shutdownCtx, childPIDs, a.metrics)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to find a WAL file from pids")
 	}
