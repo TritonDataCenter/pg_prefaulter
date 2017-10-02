@@ -23,7 +23,7 @@ import (
 // getWALFilesProcArgs finds the PostgreSQL parent PID and looks through all
 // processes that decend from PostgreSQL to parse out the current WAL file
 // contained in the args.
-func (a *Agent) getWALFilesProcArgs() (walFiles []pg.WALFilename, err error) {
+func (a *Agent) getWALFilesProcArgs() (walFiles pg.WALFiles, err error) {
 	parentPid, err := a.findPostgreSQLPostmasterPID()
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to find the PostgreSQL pid")
@@ -57,7 +57,7 @@ func (a *Agent) getWALFilesProcArgs() (walFiles []pg.WALFilename, err error) {
 // Unlike predictDBWALFilenames(), predictProcWALFilenames() uses a derived LSN
 // from the WAL filename to predict the next WAL segment to process (as opposed
 // to querying the database and potentially backing off).
-func (a *Agent) predictProcWALFilenames(walFile pg.WALFilename) ([]pg.WALFilename, error) {
+func (a *Agent) predictProcWALFilenames(walFile pg.WALFilename) (pg.WALFiles, error) {
 	timelineID, walLSN, err := pg.ParseWalfile(walFile)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to parse the WAL filename")

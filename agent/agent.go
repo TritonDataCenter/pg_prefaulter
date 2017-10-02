@@ -277,12 +277,12 @@ func (a *Agent) Wait() error {
 //
 // FIXME(seanc@): Create a WALFaulter interface that can be DB-backed or
 // process-arg backed.
-func (a *Agent) getWALFiles() ([]pg.WALFilename, error) {
+func (a *Agent) getWALFiles() (pg.WALFiles, error) {
 	// Rely on getWALFilesDB() or getWALFilesProcArgs() to update this value
 	a.metrics.SetTextValue(proc.MetricsWALLookupMode, "error")
 
 	var dbErr error
-	var walFiles []pg.WALFilename
+	var walFiles pg.WALFiles
 	walFiles, dbErr = a.getWALFilesDB()
 	if dbErr == nil {
 		return walFiles, nil
@@ -373,7 +373,6 @@ func (a *Agent) handleSignals() {
 
 // prefaultWALFiles pre-faults the heap pages referenced in WAL files.  When
 // moreWork is set to true it indicates the caller should loop immediately.
-func (a *Agent) prefaultWALFiles(walFiles []pg.WALFilename) (moreWork bool, err error) {
 	// 1) Read through the cache to prefault a given WAL file.  The cache takes
 	//    the lookup request and begins to fault the WAL file as soon as we
 	//    request it in the event of a cache miss.  The cache dedupes requests and
@@ -389,6 +388,7 @@ func (a *Agent) prefaultWALFiles(walFiles []pg.WALFilename) (moreWork bool, err 
 		_, err := a.walCache.GetIFPresent(walFile)
 		if err == gcache.KeyNotFoundError {
 			moreWork = true
+func (a *Agent) prefaultWALFiles(walFiles pg.WALFiles) (moreWork bool, err error) {
 		}
 	}
 

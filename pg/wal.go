@@ -13,7 +13,9 @@
 
 package pg
 
-import "github.com/alecthomas/units"
+import (
+	"github.com/alecthomas/units"
+)
 
 type (
 	WAL struct {
@@ -53,6 +55,8 @@ type (
 	// WALSegmentNumber is a 40 bit number.  Values exceeding WALMaxSegmentNumber
 	// will be implicit truncated using the LSNSegmentMask.
 	WALSegmentNumber uint64
+
+	WALFiles []WALFilename
 )
 
 const (
@@ -85,4 +89,20 @@ func NewWAL() WAL {
 		TimelineID:       1,
 		WALSegmentNumber: 0,
 	}
+}
+
+// Unique returns a set of unique WAL files, deduplicating the inputs.
+// The resulting set is in a random order.
+func (walFiles WALFiles) Unique() WALFiles {
+	m := make(map[WALFilename]struct{}, len(walFiles))
+	for n := range walFiles {
+		m[walFiles[n]] = struct{}{}
+	}
+
+	uniq := make([]WALFilename, 0, len(m))
+	for k := range m {
+		uniq = append(uniq, k)
+	}
+
+	return uniq
 }

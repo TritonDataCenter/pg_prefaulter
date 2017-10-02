@@ -180,7 +180,7 @@ func (a *Agent) findPostgreSQLPostmasterPID() (pid proc.PID, err error) {
 }
 
 // getWALFilesDB returns a list of WAL files according to PostgreSQL
-func (a *Agent) getWALFilesDB() ([]pg.WALFilename, error) {
+func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 	if err := a.ensureDBPool(); err != nil {
 		return nil, errors.Wrap(err, "unable to get WAL db files")
 	}
