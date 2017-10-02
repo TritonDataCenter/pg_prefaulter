@@ -185,7 +185,7 @@ func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 		return nil, errors.Wrap(err, "unable to get WAL db files")
 	}
 
-	timelineID, oldLSN, err := pg.QueryOldestLSN(a.shutdownCtx, a.pool)
+	timelineID, oldLSNs, err := pg.QueryOldestLSNs(a.shutdownCtx, a.pool, a.walCache)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to query PostgreSQL checkpoint information")
 	}
@@ -207,25 +207,31 @@ func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 		a.metrics.Set(metricsDBTimelineID, uint64(timelineID))
 	}()
 
-	walFile := oldLSN.WALFilename(timelineID)
-	func() {
-		a.pgStateLock.Lock()
-		defer a.pgStateLock.Unlock()
+	walFiles := make(pg.WALFiles, 0, len(oldLSNs))
+	for _, oldLSN := range oldLSNs {
+		walFile := oldLSN.WALFilename(timelineID)
+		func() {
+			a.pgStateLock.Lock()
+			defer a.pgStateLock.Unlock()
 
-		if a.lastWALLog != walFile {
-			if a.lastWALLog != "" {
-				// Only increment the counter once we've initialized ourself to have a
-				// last log
-				numWALFiles++
+			if a.lastWALLog != walFile {
+				if a.lastWALLog != "" {
+					// Only increment the counter once we've initialized ourself to have a
+					// last log
+					numWALFiles++
+				}
+				a.lastWALLog = walFile
 			}
-			a.lastWALLog = walFile
-		}
-	}()
+		}()
 
-	walFiles, err := a.predictDBWALFilenames(walFile)
-	if err != nil {
-		log.Debug().Err(err).Msg("unable to predict DB WAL filenames")
-		return walFiles, err
+		predictedWALFiles, err := a.predictDBWALFilenames(walFile)
+		if err != nil {
+			log.Debug().Err(err).
+				Str("walfile", string(walFile)).
+				Msg("unable to predict DB WAL filenames")
+			continue
+		}
+		walFiles = append(walFiles, predictedWALFiles...)
 	}
 
 	a.metrics.SetTextValue(proc.MetricsWALLookupMode, "db")
