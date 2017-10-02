@@ -47,5 +47,5 @@ func HeapSegmentPageNum(block HeapBlockNumber) HeapPageNumber {
 // SegmentNumber returns a HeapSegmentNumber corresponding to the SegmentNumber
 // for a given relation.
 func (heapBlockNo HeapBlockNumber) SegmentNumber() HeapSegmentNumber {
-	return HeapSegmentNumber(uint64(heapBlockNo) / uint64(HeapMaxSegmentSize))
+	return HeapSegmentNumber(uint64(heapBlockNo) / uint64(HeapMaxSegmentSize/HeapPageSize))
 }

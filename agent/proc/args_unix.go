@@ -27,6 +27,7 @@ import (
 	cgm "github.com/circonus-labs/circonus-gometrics"
 	"github.com/joyent/pg_prefaulter/pg"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 )
 
 // FindWALFileFromPIDArgs searches a slice of PIDs to find the WAL filename
@@ -81,6 +82,9 @@ func findWALFileFromPIDArgsViaPS(ctx context.Context, pids []PID, metrics *cgm.C
 	if err := scanner.Err(); err != nil {
 		return "", errors.Wrap(err, "unable to extract PostgreSQL WAL segment from ps(1) args")
 	}
+
+	log.Debug().Str("walfile", string(walSegment)).
+		Msg("found WAL segment from ps(1)")
 
 	metrics.SetTextValue(MetricsWALLookupMode, "ps(1)")
 	return pg.WALFilename(walSegment), nil

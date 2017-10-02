@@ -15,10 +15,10 @@ package walcache
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"os"
 	"os/exec"
@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alecthomas/units"
@@ -68,18 +69,26 @@ type WALCache struct {
 	c         gcache.Cache
 	ioCache   *iocache.IOCache
 
+	inFlightLock     sync.RWMutex
+	inFlightCond     *sync.Cond
+	inFlightWALFiles map[pg.WALFilename]struct{}
+
 	re      *regexp.Regexp
 	metrics *cgm.CirconusMetrics
 }
 
 func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, ioCache *iocache.IOCache) (*WALCache, error) {
+	walWorkers := pg.NumOldLSNs * int(math.Ceil(float64(cfg.ReadaheadBytes)/float64(pg.WALSegmentSize)))
+
 	wc := &WALCache{
 		ctx:     ctx,
 		metrics: metrics,
 		cfg:     &cfg.WALCacheConfig,
 
-		ioCache: ioCache,
+		inFlightWALFiles: make(map[pg.WALFilename]struct{}, walWorkers),
+		ioCache:          ioCache,
 	}
+	wc.inFlightCond = sync.NewCond(&wc.inFlightLock)
 
 	switch cfg.WALCacheConfig.Mode {
 	case config.WALModeXLog:
@@ -90,7 +99,6 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 		panic(fmt.Sprintf("unsupported WALConfig.mode: %v", cfg.WALCacheConfig.Mode))
 	}
 
-	walWorkers := int(math.Ceil(float64(wc.cfg.ReadaheadBytes) / float64(pg.WALSegmentSize)))
 	walFilePrefaultWorkQueue := make(chan pg.WALFilename)
 	for walWorker := 0; walWorker < walWorkers; walWorker++ {
 		wc.wg.Add(1)
@@ -119,6 +127,12 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 					} else {
 						wc.metrics.Increment(config.MetricsWALFaultCount)
 					}
+
+					// Inserts into wc.inFlightWALFile happen in FaultWALFile()
+					wc.inFlightLock.Lock()
+					delete(wc.inFlightWALFiles, walFile)
+					wc.inFlightCond.Broadcast()
+					wc.inFlightLock.Unlock()
 
 					wc.metrics.Gauge(config.MetricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
 				}
@@ -154,9 +168,57 @@ func (wc *WALCache) Get(k interface{}) (interface{}, error) {
 	return wc.c.Get(k)
 }
 
-// GetIFPresent forwards to gcache.Cache's GetIFPresent().
-func (wc *WALCache) GetIFPresent(k interface{}) (interface{}, error) {
-	return wc.c.GetIFPresent(k)
+// GetIFPresent forwards to gcache.Cache's GetIFPresent() if the given
+// WALFilename is not already in process.
+func (wc *WALCache) FaultWALFile(walFilename pg.WALFilename) (bool, error) {
+	wc.inFlightLock.Lock()
+	if _, found := wc.inFlightWALFiles[walFilename]; found {
+		wc.inFlightLock.Unlock()
+		return true, nil
+	}
+
+	// Removal of a walFile is handled in the
+	// walFilePrefaultWorkQueue.
+	wc.inFlightWALFiles[walFilename] = struct{}{}
+	wc.inFlightLock.Unlock()
+
+	_, err := wc.c.GetIFPresent(walFilename)
+	if err == gcache.KeyNotFoundError {
+		return true, nil
+	}
+	return false, err
+}
+
+func (wc *WALCache) InProcess(walFilename pg.WALFilename) bool {
+	wc.inFlightLock.Lock()
+	defer wc.inFlightLock.Unlock()
+
+	_, found := wc.inFlightWALFiles[walFilename]
+	if found {
+		return true
+	}
+
+	_, err := wc.c.GetIFPresent(walFilename)
+	if err == gcache.KeyNotFoundError {
+		return false
+	}
+	return true
+}
+
+// Wait blocks until the WAL File is no longer in flight.
+func (wc *WALCache) WaitWALFile(walFilename pg.WALFilename) error {
+	wc.inFlightLock.Lock()
+	defer wc.inFlightLock.Unlock()
+
+	const maxWakeups = 10
+	for i := 0; i < maxWakeups; i++ {
+		if _, found := wc.inFlightWALFiles[walFilename]; !found {
+			return nil
+		}
+		wc.inFlightCond.Wait()
+	}
+
+	return fmt.Errorf("%d spurious wakeups achieved while waiting for %+q", wc.inFlightCond.Wait, walFilename)
 }
 
 // Purge purges the WALCache of its cache (and all downstream caches)
@@ -185,7 +247,8 @@ func (wc *WALCache) Wait() {
 // handled by the ioCache.
 func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	re := wc.re.Copy()
-	var linesMatched, linesScanned, walFilesProcessed, xlogdumpBytes uint64
+	var blocksMatched, linesMatched, linesScanned, walFilesProcessed, xlogdumpBytes uint64
+	var ioCacheHit, ioCacheMiss uint64
 
 	walFileAbs := path.Join(wc.cfg.PGDataPath, "pg_xlog", string(walFile))
 	_, err = os.Stat(walFileAbs)
@@ -195,31 +258,37 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	}
 
 	cmd := exec.CommandContext(wc.ctx, wc.cfg.XLogDumpPath, "-f", walFileAbs)
-	cmd.Stderr = ioutil.Discard
+	var errbuf bytes.Buffer
+	cmd.Stderr = &errbuf
 
 	var dumpOutReader io.ReadCloser
 	dumpOutReader, err = cmd.StdoutPipe()
 	if err != nil {
-		return errors.Wrap(err, "unable to open stdout for pg_xlogdump(1)")
+		return errors.Wrapf(err, "unable to open stdout for pg_xlogdump(1): %q", errbuf.String())
 	}
 	if err := cmd.Start(); err != nil {
-		return errors.Wrap(err, "unable to read from pg_xlogdump(1)")
+		return errors.Wrapf(err, "unable to read from pg_xlogdump(1): %q", errbuf.String())
 	}
 
 	scanner := bufio.NewScanner(dumpOutReader)
+	var cmdWG sync.WaitGroup
+	cmdWG.Add(1)
 	go func() {
+		defer cmdWG.Done()
+
 		for scanner.Scan() {
 			line := scanner.Bytes()
-			xlogdumpBytes += uint64(len(line))
-			linesScanned++
+			xlogdumpBytes = atomic.AddUint64(&xlogdumpBytes, uint64(len(line)))
+			linesScanned = atomic.AddUint64(&linesScanned, 1)
 			submatches := re.FindAllSubmatch(line, -1)
 			if submatches == nil {
 				continue
 			}
 
-			linesMatched++
+			linesMatched = atomic.AddUint64(&linesMatched, 1)
 
 			for _, matches := range submatches {
+				blocksMatched = atomic.AddUint64(&blocksMatched, 1)
 				tablespace, err := strconv.ParseUint(string(matches[1]), 10, 64)
 				if err != nil {
 					log.Error().Err(err).Str("input", string(matches[1])).Msg("unable to convert tablespace")
@@ -247,6 +316,7 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 				// rmgr: Transaction len (rec/tot):     66/    66, tx:        995, lsn: 0/03000840, prev 0/030007D0, desc: COMMIT 2017-09-30 17:23:38.416563 UTC; inval msgs: catcache 21; sync
 				// rmgr: Storage     len (rec/tot):     42/    42, tx:          0, lsn: 0/03000888, prev 0/03000840, desc: CREATE base/16384/16385
 				if database == 0 {
+					log.Info().Str("input", string(line)).Msg("database 0")
 					continue
 				}
 
@@ -282,22 +352,26 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 				_, err = wc.ioCache.GetIFPresent(ioCacheKey)
 				switch {
 				case err == nil:
+					ioCacheHit = atomic.AddUint64(&ioCacheHit, 1)
 				case err == gcache.KeyNotFoundError:
 					// cache miss, an IO has been scheduled in the background.
+					ioCacheMiss = atomic.AddUint64(&ioCacheMiss, 1)
 				case err != nil:
 					log.Debug().Err(err).Msg("iocache prefaultWALFile()")
 				}
 			}
 		}
 
-		// Call it a success if we found at least one matching line
-		if linesMatched > 0 {
-			walFilesProcessed++
+		// Declare victory if we fault at least one block
+		if atomic.LoadUint64(&ioCacheMiss)+atomic.LoadUint64(&ioCacheHit) > 0 {
+			walFilesProcessed = atomic.AddUint64(&walFilesProcessed, uint64(1))
 		}
 	}()
 
+	cmdWG.Wait()
+
 	if err = scanner.Err(); err != nil {
-		log.Warn().Err(err).Msg("scanning output")
+		log.Warn().Err(err).Str("stderr", errbuf.String()).Msg("scanning output")
 	}
 
 	// pg_xlogdump(1) can return 1 when it has problems decoding output.  Notably
@@ -307,20 +381,39 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	// pg_xlogdump: FATAL:  error in WAL record at C/A15FD930: record with incorrect prev-link 61313664/37303561 at C/A15FD968
 	//
 	// As such, only bail if we have an error and we didn't process any records.
-	if err := cmd.Wait(); err != nil && walFilesProcessed == 0 {
-		log.Debug().Err(err).Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).Str("walfile", walFileAbs).Msg("pg_xlogdump execve(2) failed")
-		return errors.Wrapf(err, "pg_xlogdump(1) returned uncleanly when reading %+q or running %+q", walFileAbs, wc.cfg.XLogDumpPath)
+	// We always log when there is stderr output, however, so the error handling
+	// of Wait is deferred until after the logging and metrics.
+	waitErr := cmd.Wait()
+
+	// For whatever reason pg_xlogdump(1) had stderr output.  It's
+	// entirely plausible, even likely, that pg_xlogdump(1) threw some
+	// output to stderr and yet the prefaulter still produced useful
+	// results.
+	if len(errbuf.String()) > 0 {
+		log.Warn().Err(waitErr).
+			Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).
+			Str("walfile", walFileAbs).
+			Str("stderr", errbuf.String()).
+			Uint64("blocks-matched", atomic.LoadUint64(&blocksMatched)).
+			Uint64("wal-files-processed", atomic.LoadUint64(&walFilesProcessed)).
+			Uint64("iocache-hit", atomic.LoadUint64(&ioCacheHit)).
+			Uint64("iocache-miss", atomic.LoadUint64(&ioCacheMiss)).
+			Uint64("lines-matched", atomic.LoadUint64(&linesMatched)).
+			Uint64("lines-scanned", atomic.LoadUint64(&linesScanned)).
+			Uint64("pg_xlogdump-bytes", atomic.LoadUint64(&xlogdumpBytes)).
+			Msg("pg_xlogdump(1) stderr")
+	}
+	wc.metrics.Add(config.MetricsIOCacheHit, atomic.LoadUint64(&ioCacheHit))
+	wc.metrics.Add(config.MetricsIOCacheMiss, atomic.LoadUint64(&ioCacheMiss))
+	wc.metrics.Add(config.MetricsXLogDumpLen, atomic.LoadUint64(&xlogdumpBytes))
+	wc.metrics.Add(config.MetricsXLogDumpBlocksMatched, atomic.LoadUint64(&blocksMatched))
+	wc.metrics.Add(config.MetricsXLogDumpLinesMatched, atomic.LoadUint64(&linesMatched))
+	wc.metrics.Add(config.MetricsXLogDumpLinesScanned, atomic.LoadUint64(&linesScanned))
+	wc.metrics.Add(config.MetricsXLogPrefaulted, atomic.LoadUint64(&walFilesProcessed))
+
+	if waitErr == nil {
+		return nil
 	}
 
-	// For whatever reason pg_xlogdump(1) succeeded but produced no output
-	if walFilesProcessed == 0 {
-		log.Debug().Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).Str("walfile", walFileAbs).Msg("Unprocessable WAL output")
-	}
-
-	wc.metrics.Add(config.MetricsXLogDumpLen, xlogdumpBytes)
-	wc.metrics.Add(config.MetricsXLogDumpLinesMatched, linesMatched)
-	wc.metrics.Add(config.MetricsXLogDumpLinesScanned, linesScanned)
-	wc.metrics.Add(config.MetricsXLogPrefaulted, walFilesProcessed)
-
-	return nil
+	return errors.Wrapf(waitErr, "pg_xlogdump(1) returned uncleanly when reading %+q or running %+q: %+q", walFileAbs, wc.cfg.XLogDumpPath, errbuf.String())
 }

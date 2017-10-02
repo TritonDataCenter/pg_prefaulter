@@ -147,9 +147,9 @@ func (lsn LSN) ByteOffset() WALByteOffset {
 
 // Readahead returns all of the anticipated WAL filenames that will be present
 // in the future based on the lsn and the readahead.
-func (lsn LSN) Readahead(timelineID TimelineID, maxBytes units.Base2Bytes) []WALFilename {
+func (lsn LSN) Readahead(timelineID TimelineID, maxBytes units.Base2Bytes) WALFiles {
 	// Always read in at least the current WAL file
-	walFiles := make([]WALFilename, 0, int(math.Ceil(float64(maxBytes)/float64(WALSegmentSize))))
+	walFiles := make(WALFiles, 0, int(math.Ceil(float64(maxBytes)/float64(WALSegmentSize))))
 
 	cur := lsn
 	for remainingBytes := maxBytes; remainingBytes > 0; remainingBytes -= WALSegmentSize {

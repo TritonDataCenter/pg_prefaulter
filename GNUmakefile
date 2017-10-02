@@ -52,7 +52,7 @@ PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgres
 PWFILE?=.pwfile
 
 PGBENCH?=$(wildcard /usr/local/bin/pgbench /opt/local/lib/postgresql$(PGVERSION)/bin/pgbench /opt/local/bin/pgbench)
-PGBENCH_ARGS?=-j 64 -P 60 -r -T 900
+PGBENCH_ARGS?=-j 64 -P 60 -r -T 900 --no-vacuum --protocol=prepared
 PGBENCH_INIT_ARGS?=-i -s 10 -F 90
 
 GOPATH?=$(shell go env GOPATH)
@@ -127,20 +127,70 @@ startdb-primary:: check-postgres ## 30 Start the primary database
 	2>&1 \
 	exec $(POSTGRES) \
 		-D "$(PGDATA_PRIMARY)" \
-		-c log_connections=on \
-		-c log_disconnections=on \
-		-c log_duration=on \
-		-c log_statement=all \
+		-c log_connections=off \
+		-c log_disconnections=off \
+		-c log_duration=off \
+		-c log_statement=ddl \
 		-c wal_level=hot_standby \
+		-c wal_log_hints=on \
+		-c full_page_writes=on \
 		-c archive_mode=on \
 		-c max_wal_senders=5 \
 		-c wal_keep_segments=50 \
 		-c hot_standby=on \
 		-c archive_command="exit 0" \
-	| tee -a postgresql-primary.log
+		-c synchronous_commit=off \
+		-c fsync=off \
+	| tee postgresql-primary.log
 
+.PHONY: startdb-primary-debug
+startdb-primary-debug:: check-postgres ## 30 Start the primary database with debug-level logging
+	2>&1 \
+	exec $(POSTGRES) \
+		-D "$(PGDATA_PRIMARY)" \
+		-c log_connections=on \
+		-c log_disconnections=on \
+		-c log_duration=on \
+		-c log_statement=all \
+		-c wal_level=hot_standby \
+		-c wal_log_hints=on \
+		-c full_page_writes=on \
+		-c archive_mode=on \
+		-c max_wal_senders=5 \
+		-c wal_keep_segments=50 \
+		-c hot_standby=on \
+		-c archive_command="exit 0" \
+		-c synchronous_commit=off \
+		-c fsync=off \
+	| tee postgresql-primary.log
+
+# Note, the follower config is deliberately slower than the primary
 .PHONY: startdb-follower
 startdb-follower:: check-postgres ## 40 Start the follower database
+	2>&1 \
+	exec nice -n 20 \
+	$(POSTGRES) \
+		-D "$(PGDATA_FOLLOWER)" \
+		-p "$(PGFOLLOWPORT)" \
+		-c log_connections=on \
+		-c log_disconnections=on \
+		-c log_duration=off \
+		-c log_statement=ddl \
+		-c wal_level=hot_standby \
+		-c wal_log_hints=on \
+		-c full_page_writes=on \
+		-c archive_mode=on \
+		-c max_wal_senders=5 \
+		-c wal_keep_segments=50 \
+		-c hot_standby=on \
+		-c archive_command="exit 0" \
+		-c synchronous_commit=on \
+		-c fsync=on \
+	| tee postgresql-follower.log
+
+# Note, the follower config is deliberately slower than the primary
+.PHONY: startdb-follower-debug
+startdb-follower-debug:: check-postgres ## 40 Start the follower database with debug-level logging
 	2>&1 \
 	exec nice -n 20 \
 	$(POSTGRES) \
@@ -151,11 +201,15 @@ startdb-follower:: check-postgres ## 40 Start the follower database
 		-c log_duration=on \
 		-c log_statement=all \
 		-c wal_level=hot_standby \
+		-c wal_log_hints=on \
+		-c full_page_writes=on \
 		-c archive_mode=on \
 		-c max_wal_senders=5 \
 		-c wal_keep_segments=50 \
 		-c hot_standby=on \
 		-c archive_command="exit 0" \
+		-c synchronous_commit=on \
+		-c fsync=on \
 	| tee postgresql-follower.log
 
 .PHONY: clean
@@ -210,13 +264,22 @@ gendata:: check-psql ## 50 Generate data in the primary
 .PHONY: psql
 psql:: psql-primary ## 70 Open a psql(1) shell to the primary
 
+.PHONY: psql-both
+psql-both:: psql-primary ## 70 Send a psql(1) command to both using -c
+	@if [ -z "$(PSQL_ARGS)" ]; then \
+		printf "PSQL_ARGS not set."; \
+		exit 1; \
+	fi
+	@$(MAKE) psql-primary PSQL_ARGS="$(PSQL_ARGS)"
+	@$(MAKE) psql-follower PSQL_ARGS="$(PSQL_ARGS)"
+
 .PHONY: psql-primary
 psql-primary:: check-psql ## 30 Open a psql(1) shell to the primary
-	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -E postgres postgres $(PSQL_ARGS)
+	@exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -E postgres postgres $(PSQL_ARGS)
 
 .PHONY: psql-follower
 psql-follower:: check-psql ## 40 Open a psql(1) shell to the follower
-	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -p 5433 -E postgres postgres $(PSQL_ARGS)
+	@exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -p 5433 -E postgres postgres $(PSQL_ARGS)
 
 .PHONY: help
 help:: ## 99 This help message

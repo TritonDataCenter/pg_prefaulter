@@ -25,7 +25,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/alecthomas/units"
-	"github.com/bluele/gcache"
 	cgm "github.com/circonus-labs/circonus-gometrics"
 	"github.com/jackc/pgx"
 	"github.com/joyent/pg_prefaulter/agent/fhcache"
@@ -125,7 +124,11 @@ func New(cfg *config.Config) (a *Agent, err error) {
 func (a *Agent) Start() {
 	var err error
 
-	log.Debug().Msg("Starting " + buildtime.PROGNAME + " agent")
+	log.Info().Str("date", buildtime.DATE).
+		Str("version", buildtime.VERSION).
+		Str("commit", buildtime.COMMIT).
+		Str("tag", buildtime.TAG).
+		Msg("Starting " + buildtime.PROGNAME + " agent")
 
 	a.pgStateLock.Lock()
 	if a.pool != nil {
@@ -163,7 +166,7 @@ func (a *Agent) Start() {
 	// 5b) Fault into the filesystem cache using pread(2) if pg_prewarm is not
 	//     available.
 
-	var moreWork bool = true
+	sleepBetweenIterations := true
 	var purgeCache bool
 
 	// Use a closure to reduce the boiler plate in controlling the event loop.
@@ -181,7 +184,7 @@ func (a *Agent) Start() {
 		switch {
 		case retry && a.cfg.RetryInit:
 			log.Error().Err(rawErr).Str("next step", "retrying").Msg(msg)
-			moreWork = false
+			sleepBetweenIterations = false
 			return true
 		default:
 			log.Error().Err(rawErr).Str("next step", "exiting").Msg(msg)
@@ -204,10 +207,10 @@ RETRY:
 		}
 
 		// 3) Sleep
-		if !moreWork {
+		if !sleepBetweenIterations {
 			d := viper.GetDuration(config.KeyPGPollInterval)
 			time.Sleep(d)
-			moreWork = false
+			sleepBetweenIterations = false
 		}
 
 		// 4) Get WAL files
@@ -223,7 +226,7 @@ RETRY:
 		}
 
 		// 5) Fault in PostgreSQL heap pages identified in the WAL files
-		if moreWork, err = a.prefaultWALFiles(walFiles); err != nil {
+		if _, err = a.prefaultWALFiles(walFiles); err != nil {
 			retry := handleErrors(err, "unable to prefault WAL files")
 			if retry {
 				goto RETRY
@@ -277,12 +280,12 @@ func (a *Agent) Wait() error {
 //
 // FIXME(seanc@): Create a WALFaulter interface that can be DB-backed or
 // process-arg backed.
-func (a *Agent) getWALFiles() ([]pg.WALFilename, error) {
+func (a *Agent) getWALFiles() (pg.WALFiles, error) {
 	// Rely on getWALFilesDB() or getWALFilesProcArgs() to update this value
 	a.metrics.SetTextValue(proc.MetricsWALLookupMode, "error")
 
 	var dbErr error
-	var walFiles []pg.WALFilename
+	var walFiles pg.WALFiles
 	walFiles, dbErr = a.getWALFilesDB()
 	if dbErr == nil {
 		return walFiles, nil
@@ -373,39 +376,22 @@ func (a *Agent) handleSignals() {
 
 // prefaultWALFiles pre-faults the heap pages referenced in WAL files.  When
 // moreWork is set to true it indicates the caller should loop immediately.
-func (a *Agent) prefaultWALFiles(walFiles []pg.WALFilename) (moreWork bool, err error) {
-	// 1) Read through the cache to prefault a given WAL file.  The cache takes
-	//    the lookup request and begins to fault the WAL file as soon as we
-	//    request it in the event of a cache miss.  The cache dedupes requests and
-	//    prevents a WAL file from being prefaulted a second time (until the
-	//    caches are purged)..
-	// 2) Perform all cache lookups using GetIFPresent() in order to trigger a
-	//    backfill of the entry.  GetIFPresent() has a side-effect of launching
-	//    the LoaderFunc(), which will populate the cache and deduplicate requests
-	//    if the cache hasn't been filled by the subsequent iteration through the
-	//    cache.  If all entries were found in the cache, sleep.  If we had any
-	//    cache misses loop immediately.
-	for _, walFile := range walFiles {
-		_, err := a.walCache.GetIFPresent(walFile)
-		if err == gcache.KeyNotFoundError {
-			moreWork = true
+func (a *Agent) prefaultWALFiles(walFiles pg.WALFiles) (moreWork bool, err error) {
+	uniqueWALFiles := walFiles.Unique()
+
+	// Read through the cache to prefault a given WAL file.  The cache
+	// begins to fault the WAL file as soon as requested in the event of
+	// a cache miss.  FaultWALFile() dedupes requests and prevents a WAL
+	// file from concurrent prefault operations.
+	waitWALFiles := make(pg.WALFiles, 0, len(walFiles))
+	for _, walFile := range uniqueWALFiles {
+		if faulting, _ := a.walCache.FaultWALFile(walFile); faulting {
+			waitWALFiles = append(waitWALFiles, walFile)
 		}
 	}
 
-	// If we had a single cache miss previously, perform the exact same lookups a
-	// second time, but this time with a blocking call to Get().  We perform this
-	// second loop through the cache in order to limit the amount of activity and
-	// let the dispatched work run to completion before attempting to process
-	// additional WAL files.
-	if moreWork {
-		for _, walFile := range walFiles {
-			if _, err := a.walCache.Get(walFile); err != nil {
-				return false, errors.Wrap(err, "unable to perform synchronous Get operation on WAL file cache")
-			}
-		}
-	}
 
-	return moreWork, nil
+	return len(waitWALFiles) > pg.NumOldLSNs, nil
 }
 
 // stopSignalHandler disables the signal handler

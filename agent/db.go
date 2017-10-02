@@ -180,12 +180,12 @@ func (a *Agent) findPostgreSQLPostmasterPID() (pid proc.PID, err error) {
 }
 
 // getWALFilesDB returns a list of WAL files according to PostgreSQL
-func (a *Agent) getWALFilesDB() ([]pg.WALFilename, error) {
+func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 	if err := a.ensureDBPool(); err != nil {
 		return nil, errors.Wrap(err, "unable to get WAL db files")
 	}
 
-	timelineID, oldLSN, err := pg.QueryOldestLSN(a.shutdownCtx, a.pool)
+	timelineID, oldLSNs, err := pg.QueryOldestLSNs(a.shutdownCtx, a.pool, a.walCache)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to query PostgreSQL checkpoint information")
 	}
@@ -207,25 +207,31 @@ func (a *Agent) getWALFilesDB() ([]pg.WALFilename, error) {
 		a.metrics.Set(metricsDBTimelineID, uint64(timelineID))
 	}()
 
-	walFile := oldLSN.WALFilename(timelineID)
-	func() {
-		a.pgStateLock.Lock()
-		defer a.pgStateLock.Unlock()
+	walFiles := make(pg.WALFiles, 0, len(oldLSNs))
+	for _, oldLSN := range oldLSNs {
+		walFile := oldLSN.WALFilename(timelineID)
+		func() {
+			a.pgStateLock.Lock()
+			defer a.pgStateLock.Unlock()
 
-		if a.lastWALLog != walFile {
-			if a.lastWALLog != "" {
-				// Only increment the counter once we've initialized ourself to have a
-				// last log
-				numWALFiles++
+			if a.lastWALLog != walFile {
+				if a.lastWALLog != "" {
+					// Only increment the counter once we've initialized ourself to have a
+					// last log
+					numWALFiles++
+				}
+				a.lastWALLog = walFile
 			}
-			a.lastWALLog = walFile
-		}
-	}()
+		}()
 
-	walFiles, err := a.predictDBWALFilenames(walFile)
-	if err != nil {
-		log.Debug().Err(err).Msg("unable to predict DB WAL filenames")
-		return walFiles, err
+		predictedWALFiles, err := a.predictDBWALFilenames(walFile)
+		if err != nil {
+			log.Debug().Err(err).
+				Str("walfile", string(walFile)).
+				Msg("unable to predict DB WAL filenames")
+			continue
+		}
+		walFiles = append(walFiles, predictedWALFiles...)
 	}
 
 	a.metrics.SetTextValue(proc.MetricsWALLookupMode, "db")
@@ -400,15 +406,10 @@ func (a *Agent) predictDBWALFilenames(walFile pg.WALFilename) ([]pg.WALFilename,
 		return nil, errors.Wrap(err, "unable to query follower lag")
 	}
 
-	// FIXME(seanc@): The replay LSN needs to also include the redo_location
-	replayLSN, err := a.queryLSN(LastXLogReplayLocation)
+	timelineID, lsn, err := pg.ParseWalfile(walFile)
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to query LSN")
+		return nil, errors.Wrap(err, "unable to parse WAL file while predicting names from the DB")
 	}
-
-	a.pgStateLock.RLock()
-	timelineID := a.lastTimelineID
-	a.pgStateLock.RUnlock()
 
 	// Clamp the number of bytes we'll readahead in order to prevent reading into
 	// the future.
@@ -417,5 +418,5 @@ func (a *Agent) predictDBWALFilenames(walFile pg.WALFilename) ([]pg.WALFilename,
 		maxBytes = visibilityLagBytes
 	}
 
-	return replayLSN.Readahead(timelineID, maxBytes), nil
+	return lsn.Readahead(timelineID, maxBytes), nil
 }
