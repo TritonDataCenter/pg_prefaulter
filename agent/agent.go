@@ -226,7 +226,7 @@ RETRY:
 		}
 
 		// 5) Fault in PostgreSQL heap pages identified in the WAL files
-		if err = a.prefaultWALFiles(walFiles); err != nil {
+		if _, err = a.prefaultWALFiles(walFiles); err != nil {
 			retry := handleErrors(err, "unable to prefault WAL files")
 			if retry {
 				goto RETRY
