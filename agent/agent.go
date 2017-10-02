@@ -163,7 +163,7 @@ func (a *Agent) Start() {
 	// 5b) Fault into the filesystem cache using pread(2) if pg_prewarm is not
 	//     available.
 
-	var moreWork bool = true
+	sleepBetweenIterations := true
 	var purgeCache bool
 
 	// Use a closure to reduce the boiler plate in controlling the event loop.
@@ -181,7 +181,7 @@ func (a *Agent) Start() {
 		switch {
 		case retry && a.cfg.RetryInit:
 			log.Error().Err(rawErr).Str("next step", "retrying").Msg(msg)
-			moreWork = false
+			sleepBetweenIterations = false
 			return true
 		default:
 			log.Error().Err(rawErr).Str("next step", "exiting").Msg(msg)
@@ -204,10 +204,10 @@ RETRY:
 		}
 
 		// 3) Sleep
-		if !moreWork {
+		if !sleepBetweenIterations {
 			d := viper.GetDuration(config.KeyPGPollInterval)
 			time.Sleep(d)
-			moreWork = false
+			sleepBetweenIterations = false
 		}
 
 		// 4) Get WAL files
@@ -223,7 +223,7 @@ RETRY:
 		}
 
 		// 5) Fault in PostgreSQL heap pages identified in the WAL files
-		if moreWork, err = a.prefaultWALFiles(walFiles); err != nil {
+		if err = a.prefaultWALFiles(walFiles); err != nil {
 			retry := handleErrors(err, "unable to prefault WAL files")
 			if retry {
 				goto RETRY
