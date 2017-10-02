@@ -269,7 +269,11 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	}
 
 	scanner := bufio.NewScanner(dumpOutReader)
+	var cmdWG sync.WaitGroup
+	cmdWG.Add(1)
 	go func() {
+		defer cmdWG.Done()
+
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			xlogdumpBytes = atomic.AddUint64(&xlogdumpBytes, uint64(len(line)))
@@ -360,6 +364,8 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 			walFilesProcessed = atomic.AddUint64(&walFilesProcessed, uint64(1))
 		}
 	}()
+
+	cmdWG.Wait()
 
 	if err = scanner.Err(); err != nil {
 		log.Warn().Err(err).Msg("scanning output")
