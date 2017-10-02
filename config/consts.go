@@ -44,6 +44,8 @@ const (
 const (
 	MetricsSysPreadLatency = "ioc-sys-pread-ms"
 	MetricsPrefaultCount   = "ioc-prefault-count"
+	MetricsIOCacheHit      = "ioc-hit"
+	MetricsIOCacheMiss     = "ioc-miss"
 
 	MetricsSysCloseCount      = "fh-sys-close-count"
 	MetricsSysOpenCount       = "fh-sys-open-count"
@@ -51,10 +53,11 @@ const (
 	MetricsSysPreadBytes      = "fh-sys-pread-bytes"
 	MetricsXLogDumpErrorCount = "fh-xlogdump-error-count"
 
-	MetricsWALFaultCount        = "wal-file-fault-count"
-	MetricsWALFaultTime         = "wal-file-fault-time"
-	MetricsXLogDumpLen          = "wal-xlogdump-out-len"
-	MetricsXLogDumpLinesMatched = "wal-xlogdump-lines-matched"
-	MetricsXLogDumpLinesScanned = "wal-xlogdump-lines-scanned"
-	MetricsXLogPrefaulted       = "wal-xlog-prefaulted-count"
+	MetricsWALFaultCount         = "wal-file-fault-count"
+	MetricsWALFaultTime          = "wal-file-fault-time"
+	MetricsXLogDumpLen           = "wal-xlogdump-out-len"
+	MetricsXLogDumpBlocksMatched = "wal-xlogdump-blocks-matched"
+	MetricsXLogDumpLinesMatched  = "wal-xlogdump-lines-matched"
+	MetricsXLogDumpLinesScanned  = "wal-xlogdump-lines-scanned"
+	MetricsXLogPrefaulted        = "wal-xlog-prefaulted-count"
 )

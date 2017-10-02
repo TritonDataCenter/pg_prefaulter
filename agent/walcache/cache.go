@@ -246,7 +246,8 @@ func (wc *WALCache) Wait() {
 // handled by the ioCache.
 func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	re := wc.re.Copy()
-	var linesMatched, linesScanned, walFilesProcessed, xlogdumpBytes uint64
+	var blocksMatched, linesMatched, linesScanned, walFilesProcessed, xlogdumpBytes uint64
+	var ioCacheHit, ioCacheMiss uint64
 
 	walFileAbs := path.Join(wc.cfg.PGDataPath, "pg_xlog", string(walFile))
 	_, err = os.Stat(walFileAbs)
@@ -271,16 +272,17 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	go func() {
 		for scanner.Scan() {
 			line := scanner.Bytes()
-			xlogdumpBytes += uint64(len(line))
-			linesScanned++
+			xlogdumpBytes = atomic.AddUint64(&xlogdumpBytes, uint64(len(line)))
+			linesScanned = atomic.AddUint64(&linesScanned, 1)
 			submatches := re.FindAllSubmatch(line, -1)
 			if submatches == nil {
 				continue
 			}
 
-			linesMatched++
+			linesMatched = atomic.AddUint64(&linesMatched, 1)
 
 			for _, matches := range submatches {
+				blocksMatched = atomic.AddUint64(&blocksMatched, 1)
 				tablespace, err := strconv.ParseUint(string(matches[1]), 10, 64)
 				if err != nil {
 					log.Error().Err(err).Str("input", string(matches[1])).Msg("unable to convert tablespace")
@@ -343,17 +345,19 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 				_, err = wc.ioCache.GetIFPresent(ioCacheKey)
 				switch {
 				case err == nil:
+					ioCacheHit = atomic.AddUint64(&ioCacheHit, 1)
 				case err == gcache.KeyNotFoundError:
 					// cache miss, an IO has been scheduled in the background.
+					ioCacheMiss = atomic.AddUint64(&ioCacheMiss, 1)
 				case err != nil:
 					log.Debug().Err(err).Msg("iocache prefaultWALFile()")
 				}
 			}
 		}
 
-		// Call it a success if we found at least one matching line
-		if linesMatched > 0 {
-			walFilesProcessed++
+		// Declare victory if we fault at least one block
+		if atomic.LoadUint64(&ioCacheMiss)+atomic.LoadUint64(&ioCacheHit) > 0 {
+			walFilesProcessed = atomic.AddUint64(&walFilesProcessed, uint64(1))
 		}
 	}()
 
@@ -374,11 +378,21 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	}
 
 	// For whatever reason pg_xlogdump(1) succeeded but produced no output
-	if walFilesProcessed == 0 {
-		log.Debug().Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).Str("walfile", walFileAbs).Msg("Unprocessable WAL output")
+	if atomic.LoadUint64(&walFilesProcessed) == 0 {
+		log.Debug().Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).
+			Str("walfile", walFileAbs).
+			Uint64("blocks-matched", blocksMatched).
+			Uint64("wal-files-processed", walFilesProcessed).
+			Uint64("iocache-hit", ioCacheHit).
+			Uint64("iocache-miss", ioCacheMiss).
+			Uint64("lines-matched", linesMatched).
+			Uint64("lines-scanned", linesScanned).
+			Uint64("pg_xlogdump-bytes", xlogdumpBytes).
+			Msg("Unprocessable WAL output")
 	}
 
 	wc.metrics.Add(config.MetricsXLogDumpLen, xlogdumpBytes)
+	wc.metrics.Add(config.MetricsXLogDumpBlocksMatched, blocksMatched)
 	wc.metrics.Add(config.MetricsXLogDumpLinesMatched, linesMatched)
 	wc.metrics.Add(config.MetricsXLogDumpLinesScanned, linesScanned)
 	wc.metrics.Add(config.MetricsXLogPrefaulted, walFilesProcessed)
