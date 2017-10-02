@@ -314,6 +314,7 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 				// rmgr: Transaction len (rec/tot):     66/    66, tx:        995, lsn: 0/03000840, prev 0/030007D0, desc: COMMIT 2017-09-30 17:23:38.416563 UTC; inval msgs: catcache 21; sync
 				// rmgr: Storage     len (rec/tot):     42/    42, tx:          0, lsn: 0/03000888, prev 0/03000840, desc: CREATE base/16384/16385
 				if database == 0 {
+					log.Info().Str("input", string(line)).Msg("database 0")
 					continue
 				}
 
