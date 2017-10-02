@@ -127,20 +127,70 @@ startdb-primary:: check-postgres ## 30 Start the primary database
 	2>&1 \
 	exec $(POSTGRES) \
 		-D "$(PGDATA_PRIMARY)" \
-		-c log_connections=on \
-		-c log_disconnections=on \
-		-c log_duration=on \
-		-c log_statement=all \
+		-c log_connections=off \
+		-c log_disconnections=off \
+		-c log_duration=off \
+		-c log_statement=ddl \
 		-c wal_level=hot_standby \
+		-c wal_log_hints=on \
+		-c full_page_writes=on \
 		-c archive_mode=on \
 		-c max_wal_senders=5 \
 		-c wal_keep_segments=50 \
 		-c hot_standby=on \
 		-c archive_command="exit 0" \
-	| tee -a postgresql-primary.log
+		-c synchronous_commit=off \
+		-c fsync=off \
+	| tee postgresql-primary.log
 
+.PHONY: startdb-primary-debug
+startdb-primary-debug:: check-postgres ## 30 Start the primary database with debug-level logging
+	2>&1 \
+	exec $(POSTGRES) \
+		-D "$(PGDATA_PRIMARY)" \
+		-c log_connections=on \
+		-c log_disconnections=on \
+		-c log_duration=on \
+		-c log_statement=all \
+		-c wal_level=hot_standby \
+		-c wal_log_hints=on \
+		-c full_page_writes=on \
+		-c archive_mode=on \
+		-c max_wal_senders=5 \
+		-c wal_keep_segments=50 \
+		-c hot_standby=on \
+		-c archive_command="exit 0" \
+		-c synchronous_commit=off \
+		-c fsync=off \
+	| tee postgresql-primary.log
+
+# Note, the follower config is deliberately slower than the primary
 .PHONY: startdb-follower
 startdb-follower:: check-postgres ## 40 Start the follower database
+	2>&1 \
+	exec nice -n 20 \
+	$(POSTGRES) \
+		-D "$(PGDATA_FOLLOWER)" \
+		-p "$(PGFOLLOWPORT)" \
+		-c log_connections=on \
+		-c log_disconnections=on \
+		-c log_duration=off \
+		-c log_statement=ddl \
+		-c wal_level=hot_standby \
+		-c wal_log_hints=on \
+		-c full_page_writes=on \
+		-c archive_mode=on \
+		-c max_wal_senders=5 \
+		-c wal_keep_segments=50 \
+		-c hot_standby=on \
+		-c archive_command="exit 0" \
+		-c synchronous_commit=on \
+		-c fsync=on \
+	| tee postgresql-follower.log
+
+# Note, the follower config is deliberately slower than the primary
+.PHONY: startdb-follower-debug
+startdb-follower-debug:: check-postgres ## 40 Start the follower database with debug-level logging
 	2>&1 \
 	exec nice -n 20 \
 	$(POSTGRES) \
@@ -151,11 +201,15 @@ startdb-follower:: check-postgres ## 40 Start the follower database
 		-c log_duration=on \
 		-c log_statement=all \
 		-c wal_level=hot_standby \
+		-c wal_log_hints=on \
+		-c full_page_writes=on \
 		-c archive_mode=on \
 		-c max_wal_senders=5 \
 		-c wal_keep_segments=50 \
 		-c hot_standby=on \
 		-c archive_command="exit 0" \
+		-c synchronous_commit=on \
+		-c fsync=on \
 	| tee postgresql-follower.log
 
 .PHONY: clean
