@@ -52,7 +52,7 @@ PG_CONTROLDATA?=$(wildcard /usr/local/bin/pg_controldata /opt/local/lib/postgres
 PWFILE?=.pwfile
 
 PGBENCH?=$(wildcard /usr/local/bin/pgbench /opt/local/lib/postgresql$(PGVERSION)/bin/pgbench /opt/local/bin/pgbench)
-PGBENCH_ARGS?=-j 64 -P 60 -r -T 900
+PGBENCH_ARGS?=-j 64 -P 60 -r -T 900 --no-vacuum --protocol=prepared
 PGBENCH_INIT_ARGS?=-i -s 10 -F 90
 
 GOPATH?=$(shell go env GOPATH)
