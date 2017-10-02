@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"os"
 	"os/exec"
@@ -26,6 +25,7 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alecthomas/units"
@@ -68,18 +68,26 @@ type WALCache struct {
 	c         gcache.Cache
 	ioCache   *iocache.IOCache
 
+	inFlightLock     sync.RWMutex
+	inFlightCond     *sync.Cond
+	inFlightWALFiles map[pg.WALFilename]struct{}
+
 	re      *regexp.Regexp
 	metrics *cgm.CirconusMetrics
 }
 
 func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, ioCache *iocache.IOCache) (*WALCache, error) {
+	walWorkers := pg.NumOldLSNs * int(math.Ceil(float64(cfg.ReadaheadBytes)/float64(pg.WALSegmentSize)))
+
 	wc := &WALCache{
 		ctx:     ctx,
 		metrics: metrics,
 		cfg:     &cfg.WALCacheConfig,
 
-		ioCache: ioCache,
+		inFlightWALFiles: make(map[pg.WALFilename]struct{}, walWorkers),
+		ioCache:          ioCache,
 	}
+	wc.inFlightCond = sync.NewCond(&wc.inFlightLock)
 
 	switch cfg.WALCacheConfig.Mode {
 	case config.WALModeXLog:
@@ -90,7 +98,6 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 		panic(fmt.Sprintf("unsupported WALConfig.mode: %v", cfg.WALCacheConfig.Mode))
 	}
 
-	walWorkers := int(math.Ceil(float64(wc.cfg.ReadaheadBytes) / float64(pg.WALSegmentSize)))
 	walFilePrefaultWorkQueue := make(chan pg.WALFilename)
 	for walWorker := 0; walWorker < walWorkers; walWorker++ {
 		wc.wg.Add(1)
@@ -119,6 +126,12 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 					} else {
 						wc.metrics.Increment(config.MetricsWALFaultCount)
 					}
+
+					// Inserts into wc.inFlightWALFile happen in FaultWALFile()
+					wc.inFlightLock.Lock()
+					delete(wc.inFlightWALFiles, walFile)
+					wc.inFlightCond.Broadcast()
+					wc.inFlightLock.Unlock()
 
 					wc.metrics.Gauge(config.MetricsWALFaultTime, float64(time.Now().Sub(start)/time.Second))
 				}
@@ -154,9 +167,57 @@ func (wc *WALCache) Get(k interface{}) (interface{}, error) {
 	return wc.c.Get(k)
 }
 
-// GetIFPresent forwards to gcache.Cache's GetIFPresent().
-func (wc *WALCache) GetIFPresent(k interface{}) (interface{}, error) {
-	return wc.c.GetIFPresent(k)
+// GetIFPresent forwards to gcache.Cache's GetIFPresent() if the given
+// WALFilename is not already in process.
+func (wc *WALCache) FaultWALFile(walFilename pg.WALFilename) (bool, error) {
+	wc.inFlightLock.Lock()
+	if _, found := wc.inFlightWALFiles[walFilename]; found {
+		wc.inFlightLock.Unlock()
+		return true, nil
+	}
+
+	// Removal of a walFile is handled in the
+	// walFilePrefaultWorkQueue.
+	wc.inFlightWALFiles[walFilename] = struct{}{}
+	wc.inFlightLock.Unlock()
+
+	_, err := wc.c.GetIFPresent(walFilename)
+	if err == gcache.KeyNotFoundError {
+		return true, nil
+	}
+	return false, err
+}
+
+func (wc *WALCache) InProcess(walFilename pg.WALFilename) bool {
+	wc.inFlightLock.Lock()
+	defer wc.inFlightLock.Unlock()
+
+	_, found := wc.inFlightWALFiles[walFilename]
+	if found {
+		return true
+	}
+
+	_, err := wc.c.GetIFPresent(walFilename)
+	if err == gcache.KeyNotFoundError {
+		return false
+	}
+	return true
+}
+
+// Wait blocks until the WAL File is no longer in flight.
+func (wc *WALCache) WaitWALFile(walFilename pg.WALFilename) error {
+	wc.inFlightLock.Lock()
+	defer wc.inFlightLock.Unlock()
+
+	const maxWakeups = 10
+	for i := 0; i < maxWakeups; i++ {
+		if _, found := wc.inFlightWALFiles[walFilename]; !found {
+			return nil
+		}
+		wc.inFlightCond.Wait()
+	}
+
+	return fmt.Errorf("%d spurious wakeups achieved while waiting for %+q", wc.inFlightCond.Wait, walFilename)
 }
 
 // Purge purges the WALCache of its cache (and all downstream caches)

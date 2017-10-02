@@ -406,15 +406,10 @@ func (a *Agent) predictDBWALFilenames(walFile pg.WALFilename) ([]pg.WALFilename,
 		return nil, errors.Wrap(err, "unable to query follower lag")
 	}
 
-	// FIXME(seanc@): The replay LSN needs to also include the redo_location
-	replayLSN, err := a.queryLSN(LastXLogReplayLocation)
+	timelineID, lsn, err := pg.ParseWalfile(walFile)
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to query LSN")
+		return nil, errors.Wrap(err, "unable to parse WAL file while predicting names from the DB")
 	}
-
-	a.pgStateLock.RLock()
-	timelineID := a.lastTimelineID
-	a.pgStateLock.RUnlock()
 
 	// Clamp the number of bytes we'll readahead in order to prevent reading into
 	// the future.
@@ -423,5 +418,5 @@ func (a *Agent) predictDBWALFilenames(walFile pg.WALFilename) ([]pg.WALFilename,
 		maxBytes = visibilityLagBytes
 	}
 
-	return replayLSN.Readahead(timelineID, maxBytes), nil
+	return lsn.Readahead(timelineID, maxBytes), nil
 }
