@@ -132,7 +132,7 @@ func (fhc *FileHandleCache) PrefaultPage(ioCacheKey structs.IOCacheKey) error {
 	return nil
 }
 
-// getLocked retuns a read-locked _Value.  Upon success, callers MUST call
+// getLocked returns a read-locked _Value.  Upon success, callers MUST call
 // RUnlock().  On error _Value will return nil and the caller will not have to
 // release any outstanding locks.
 func (fhc *FileHandleCache) getLocked(ioReq structs.IOCacheKey) (*_Value, error) {
