@@ -210,13 +210,22 @@ gendata:: check-psql ## 50 Generate data in the primary
 .PHONY: psql
 psql:: psql-primary ## 70 Open a psql(1) shell to the primary
 
+.PHONY: psql-both
+psql-both:: psql-primary ## 70 Send a psql(1) command to both using -c
+	@if [ -z "$(PSQL_ARGS)" ]; then \
+		printf "PSQL_ARGS not set."; \
+		exit 1; \
+	fi
+	@$(MAKE) psql-primary PSQL_ARGS="$(PSQL_ARGS)"
+	@$(MAKE) psql-follower PSQL_ARGS="$(PSQL_ARGS)"
+
 .PHONY: psql-primary
 psql-primary:: check-psql ## 30 Open a psql(1) shell to the primary
-	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -E postgres postgres $(PSQL_ARGS)
+	@exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -E postgres postgres $(PSQL_ARGS)
 
 .PHONY: psql-follower
 psql-follower:: check-psql ## 40 Open a psql(1) shell to the follower
-	exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -p 5433 -E postgres postgres $(PSQL_ARGS)
+	@exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -p 5433 -E postgres postgres $(PSQL_ARGS)
 
 .PHONY: help
 help:: ## 99 This help message
