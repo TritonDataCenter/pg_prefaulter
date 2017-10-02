@@ -125,7 +125,11 @@ func New(cfg *config.Config) (a *Agent, err error) {
 func (a *Agent) Start() {
 	var err error
 
-	log.Debug().Msg("Starting " + buildtime.PROGNAME + " agent")
+	log.Info().Str("date", buildtime.DATE).
+		Str("version", buildtime.VERSION).
+		Str("commit", buildtime.COMMIT).
+		Str("tag", buildtime.TAG).
+		Msg("Starting " + buildtime.PROGNAME + " agent")
 
 	a.pgStateLock.Lock()
 	if a.pool != nil {
