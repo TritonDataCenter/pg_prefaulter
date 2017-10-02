@@ -15,6 +15,7 @@ package walcache
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -257,15 +258,16 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	}
 
 	cmd := exec.CommandContext(wc.ctx, wc.cfg.XLogDumpPath, "-f", walFileAbs)
-	cmd.Stderr = ioutil.Discard
+	var errbuf bytes.Buffer
+	cmd.Stderr = &errbuf
 
 	var dumpOutReader io.ReadCloser
 	dumpOutReader, err = cmd.StdoutPipe()
 	if err != nil {
-		return errors.Wrap(err, "unable to open stdout for pg_xlogdump(1)")
+		return errors.Wrapf(err, "unable to open stdout for pg_xlogdump(1): %q", errbuf.String())
 	}
 	if err := cmd.Start(); err != nil {
-		return errors.Wrap(err, "unable to read from pg_xlogdump(1)")
+		return errors.Wrapf(err, "unable to read from pg_xlogdump(1): %q", errbuf.String())
 	}
 
 	scanner := bufio.NewScanner(dumpOutReader)
@@ -369,7 +371,7 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	cmdWG.Wait()
 
 	if err = scanner.Err(); err != nil {
-		log.Warn().Err(err).Msg("scanning output")
+		log.Warn().Err(err).Str("stderr", errbuf.String()).Msg("scanning output")
 	}
 
 	// pg_xlogdump(1) can return 1 when it has problems decoding output.  Notably
@@ -379,30 +381,39 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	// pg_xlogdump: FATAL:  error in WAL record at C/A15FD930: record with incorrect prev-link 61313664/37303561 at C/A15FD968
 	//
 	// As such, only bail if we have an error and we didn't process any records.
-	if err := cmd.Wait(); err != nil && walFilesProcessed == 0 {
-		log.Debug().Err(err).Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).Str("walfile", walFileAbs).Msg("pg_xlogdump execve(2) failed")
-		return errors.Wrapf(err, "pg_xlogdump(1) returned uncleanly when reading %+q or running %+q", walFileAbs, wc.cfg.XLogDumpPath)
-	}
+	// We always log when there is stderr output, however, so the error handling
+	// of Wait is deferred until after the logging and metrics.
+	waitErr := cmd.Wait()
 
-	// For whatever reason pg_xlogdump(1) succeeded but produced no output
-	if atomic.LoadUint64(&walFilesProcessed) == 0 {
-		log.Debug().Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).
+	// For whatever reason pg_xlogdump(1) had stderr output.  It's
+	// entirely plausible, even likely, that pg_xlogdump(1) threw some
+	// output to stderr and yet the prefaulter still produced useful
+	// results.
+	if len(errbuf.String()) > 0 {
+		log.Warn().Err(waitErr).
+			Str("pg_xlogdump-path", wc.cfg.XLogDumpPath).
 			Str("walfile", walFileAbs).
-			Uint64("blocks-matched", blocksMatched).
-			Uint64("wal-files-processed", walFilesProcessed).
-			Uint64("iocache-hit", ioCacheHit).
-			Uint64("iocache-miss", ioCacheMiss).
-			Uint64("lines-matched", linesMatched).
-			Uint64("lines-scanned", linesScanned).
-			Uint64("pg_xlogdump-bytes", xlogdumpBytes).
-			Msg("Unprocessable WAL output")
+			Str("stderr", errbuf.String()).
+			Uint64("blocks-matched", atomic.LoadUint64(&blocksMatched)).
+			Uint64("wal-files-processed", atomic.LoadUint64(&walFilesProcessed)).
+			Uint64("iocache-hit", atomic.LoadUint64(&ioCacheHit)).
+			Uint64("iocache-miss", atomic.LoadUint64(&ioCacheMiss)).
+			Uint64("lines-matched", atomic.LoadUint64(&linesMatched)).
+			Uint64("lines-scanned", atomic.LoadUint64(&linesScanned)).
+			Uint64("pg_xlogdump-bytes", atomic.LoadUint64(&xlogdumpBytes)).
+			Msg("pg_xlogdump(1) stderr")
+	}
+	wc.metrics.Add(config.MetricsIOCacheHit, atomic.LoadUint64(&ioCacheHit))
+	wc.metrics.Add(config.MetricsIOCacheMiss, atomic.LoadUint64(&ioCacheMiss))
+	wc.metrics.Add(config.MetricsXLogDumpLen, atomic.LoadUint64(&xlogdumpBytes))
+	wc.metrics.Add(config.MetricsXLogDumpBlocksMatched, atomic.LoadUint64(&blocksMatched))
+	wc.metrics.Add(config.MetricsXLogDumpLinesMatched, atomic.LoadUint64(&linesMatched))
+	wc.metrics.Add(config.MetricsXLogDumpLinesScanned, atomic.LoadUint64(&linesScanned))
+	wc.metrics.Add(config.MetricsXLogPrefaulted, atomic.LoadUint64(&walFilesProcessed))
+
+	if waitErr == nil {
+		return nil
 	}
 
-	wc.metrics.Add(config.MetricsXLogDumpLen, xlogdumpBytes)
-	wc.metrics.Add(config.MetricsXLogDumpBlocksMatched, blocksMatched)
-	wc.metrics.Add(config.MetricsXLogDumpLinesMatched, linesMatched)
-	wc.metrics.Add(config.MetricsXLogDumpLinesScanned, linesScanned)
-	wc.metrics.Add(config.MetricsXLogPrefaulted, walFilesProcessed)
-
-	return nil
+	return errors.Wrapf(waitErr, "pg_xlogdump(1) returned uncleanly when reading %+q or running %+q: %+q", walFileAbs, wc.cfg.XLogDumpPath, errbuf.String())
 }
