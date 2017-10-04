@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 const (
 	KeyCirconusAPIToken                   = "circonus.api.token"
 	KeyCirconusAPIURL                     = "circonus.api.url"
@@ -68,4 +70,6 @@ const (
 	// Use a log format that resembles time.RFC3339Nano but includes all trailing
 	// zeros so that we get fixed-width logging.
 	LogFormat = "2006-01-02T15:04:05.000000000Z07:00"
+
+	StatsInterval = 60 * time.Second
 )
