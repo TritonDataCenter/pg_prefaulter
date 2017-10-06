@@ -65,7 +65,7 @@
   branch = "master"
   name = "github.com/jackc/pgx"
   packages = [".","chunkreader","internal/sanitize","pgio","pgproto3","pgtype"]
-  revision = "e7924c75904a3345ba87508146f4074ae7ee9c60"
+  revision = "63f58fd32edb5684b9e9f4cfaac847c6b42b3917"
 
 [[projects]]
   branch = "master"
