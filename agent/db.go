@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/alecthomas/units"
 	"github.com/jackc/pgx"
@@ -118,8 +119,10 @@ func (a *Agent) dbState() (_DBState, error) {
 
 	switch inRecovery {
 	case true:
+		statsIsPrimary = false
 		return _DBStateFollower, nil
 	case false:
+		statsIsPrimary = true
 		return _DBStatePrimary, nil
 	default:
 		panic("what is logic?")
@@ -280,9 +283,9 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (units.Base2Bytes, error) {
 	var sql string
 	switch lagQuery {
 	case _QueryLagPrimary:
-		sql = `SELECT state, sync_state, (pg_xlog_location_diff(sent_location, write_location))::FLOAT8 AS durability_lag_bytes, (pg_xlog_location_diff(sent_location, flush_location))::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(sent_location, replay_location))::FLOAT8 AS visibility_lag_bytes, COALESCE(EXTRACT(EPOCH FROM '0'::INTERVAL), 0.0)::FLOAT8 AS last_commit_age FROM pg_stat_replication ORDER BY visibility_lag_bytes`
+		sql = `SELECT state, sync_state, (pg_xlog_location_diff(sent_location, write_location))::FLOAT8 AS durability_lag_bytes, (pg_xlog_location_diff(sent_location, flush_location))::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(sent_location, replay_location))::FLOAT8 AS visibility_lag_bytes, COALESCE(EXTRACT(EPOCH FROM '0'::INTERVAL), 0.0)::FLOAT8 AS last_commit_age FROM pg_stat_replication ORDER BY visibility_lag_bytes LIMIT 1`
 	case _QueryLagFollower:
-		sql = `SELECT 'receiving' AS state, 'applying' AS sync_state, 0.0::FLOAT8 AS durability_lag_bytes, 0.0::FLOAT8 AS flush_lag_bytes, COALESCE((pg_xlog_location_diff(pg_last_xlog_receive_location(), pg_last_xlog_replay_location()))::FLOAT8, 0.0)::FLOAT8 AS visibility_lag_bytes, COALESCE(EXTRACT(EPOCH FROM (NOW() - pg_last_xact_replay_timestamp())::INTERVAL), 0.0)::FLOAT8 AS last_commit_age`
+		sql = `SELECT 'receiving' AS state, 'applying' AS sync_state, 0.0::FLOAT8 AS durability_lag_bytes, 0.0::FLOAT8 AS flush_lag_bytes, COALESCE((pg_xlog_location_diff(pg_last_xlog_receive_location(), pg_last_xlog_replay_location()))::FLOAT8, 0.0)::FLOAT8 AS visibility_lag_bytes, COALESCE(EXTRACT(EPOCH FROM (NOW() - pg_last_xact_replay_timestamp())::INTERVAL), 0.0)::FLOAT8 AS last_commit_age LIMIT 1`
 	default:
 		panic(fmt.Sprintf("unsupported query: %v", lagQuery))
 	}
@@ -305,6 +308,14 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (units.Base2Bytes, error) {
 		}
 
 		numRows++
+
+		// Record useful stats that will be emitted in the logs
+		statsSenderState = senderState
+		statsSyncState = syncState
+		statsDurabilityLag = units.Base2Bytes(durabilityLag)
+		statsFlushLag = units.Base2Bytes(flushLag)
+		statsVisibilityLag = units.Base2Bytes(visibilityLag)
+		statsTXNAgeMilliseconds = time.Duration(txnAge) * (time.Second / time.Millisecond)
 
 		// Only record values that actually change.  Don't record metrics that are
 		// missing on a shard member.
@@ -419,4 +430,37 @@ func (a *Agent) predictDBWALFilenames(walFile pg.WALFilename) ([]pg.WALFilename,
 	}
 
 	return lsn.Readahead(timelineID, maxBytes), nil
+}
+
+var (
+	statsIsPrimary bool
+
+	statsSenderState string
+	statsSyncState   string
+
+	statsDurabilityLag      units.Base2Bytes
+	statsFlushLag           units.Base2Bytes
+	statsVisibilityLag      units.Base2Bytes
+	statsTXNAgeMilliseconds time.Duration
+)
+
+// startDBStats is a periodic stats routine that emits stats regarding the
+// database to the log files.
+func (a *Agent) startDBStats() {
+	for {
+		select {
+		case <-a.shutdownCtx.Done():
+			return
+		case <-time.After(config.StatsInterval):
+			log.Debug().
+				Str("sender-state", statsSenderState).
+				Bool("primary", statsIsPrimary).
+				Str("syn-state", statsSyncState).
+				Int64("durability-lag", int64(statsDurabilityLag)).
+				Int64("flush-lag", int64(statsFlushLag)).
+				Int64("visibility-lag-ms", int64(statsVisibilityLag)).
+				Dur("replay-delay", statsTXNAgeMilliseconds).
+				Msg("db-stats")
+		}
+	}
 }

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/bluele/gcache"
+	"github.com/joyent/pg_prefaulter/config"
 	log "github.com/rs/zerolog/log"
 )
 
@@ -35,12 +36,11 @@ func IsShuttingDown(ctx context.Context) bool {
 // LogCacheStats emits logs periodically with cache hit, miss, lookup count, and
 // hit rates.
 func LogCacheStats(ctx context.Context, c gcache.Cache, cacheName string) {
-	const statsInterval = 60 * time.Second
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(statsInterval):
+		case <-time.After(config.StatsInterval):
 			log.Debug().
 				Uint64("hit", c.HitCount()).
 				Uint64("miss", c.MissCount()).

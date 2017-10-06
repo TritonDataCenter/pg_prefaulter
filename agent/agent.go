@@ -141,6 +141,7 @@ func (a *Agent) Start() {
 	a.pgStateLock.Unlock()
 
 	go a.handleSignals()
+	go a.startDBStats()
 
 	if viper.GetBool(config.KeyCirconusEnabled) {
 		a.metrics.Start()

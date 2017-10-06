@@ -265,7 +265,7 @@ gendata:: check-psql ## 50 Generate data in the primary
 psql:: psql-primary ## 70 Open a psql(1) shell to the primary
 
 .PHONY: psql-both
-psql-both:: psql-primary ## 70 Send a psql(1) command to both using -c
+psql-both:: ## 70 Send a psql(1) command to both using -c
 	@if [ -z "$(PSQL_ARGS)" ]; then \
 		printf "PSQL_ARGS not set."; \
 		exit 1; \
