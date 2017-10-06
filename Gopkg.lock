@@ -113,7 +113,7 @@
   branch = "master"
   name = "github.com/spf13/afero"
   packages = [".","mem"]
-  revision = "ee1bd8ee15a1306d1f9201acc41ef39cd9f99a1b"
+  revision = "3de492c3cda9570c77bc1f495857bfbf4b760efd"
 
 [[projects]]
   name = "github.com/spf13/cast"
