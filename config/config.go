@@ -47,7 +47,9 @@ type Config struct {
 
 type Agent struct {
 	PostgreSQLPIDPath string
+	JSONLogging       bool
 	RetryInit         bool
+	UseColors         bool
 }
 
 type FHCacheConfig struct {
@@ -138,6 +140,8 @@ func NewDefault() (*Config, error) {
 	{
 		const postmasterPIDFilename = "postmaster.pid"
 		agentConfig.PostgreSQLPIDPath = path.Join(viper.GetString(KeyPGData), postmasterPIDFilename)
+		agentConfig.UseColors = viper.GetBool(KeyAgentUseColor)
+		agentConfig.JSONLogging = viper.GetBool(KeyAgentJSONLogging)
 		agentConfig.RetryInit = viper.GetBool(KeyRetryDBInit)
 	}
 
