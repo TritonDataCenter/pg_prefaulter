@@ -439,9 +439,9 @@ func (a *Agent) startDBStats() {
 			return
 		case <-time.After(config.StatsInterval):
 			log.Debug().
-				Str(metricsDBSenderState, dbStats.senderState.String()).
-				Str(metricsDBState, dbStats.dbState.String()).
-				Str(metricsDBPeerSyncState, dbStats.peerSyncState.String()).
+				Str(metricsDBSenderState, dbStats.senderState.Value()).
+				Str(metricsDBState, dbStats.dbState.Value()).
+				Str(metricsDBPeerSyncState, dbStats.peerSyncState.Value()).
 				Int64(metricsDBLagDurabilityBytes, dbStats.durabilityLagBytes.Value()).
 				Int64(metricsDBLagFlushBytes, dbStats.flushLagBytes.Value()).
 				Int64(metricsDBLagVisibilityBytes, dbStats.visibilityLagBytes.Value()).
