@@ -14,6 +14,7 @@ builds:
     goos:
       - darwin
       - freebsd
+      - linux
       - solaris
 
     # GOARCH to build in.
@@ -67,6 +68,7 @@ archive:
     386: 32-bit
     darwin: macOS
     freebsd: FreeBSD
+    linux: Linux
     solaris: Illumos
 
   # Additional files/globs you want to add to the archive.
