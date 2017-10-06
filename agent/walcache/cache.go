@@ -126,6 +126,7 @@ func New(ctx context.Context, cfg *config.Config, circMetrics *cgm.CirconusMetri
 
 					numConcurrentWALLock.Lock()
 					numConcurrentWALs++
+					wc.metrics.Gauge(metrics.WALNumConcurrentWALs, numConcurrentWALs)
 					metrics.WALStats.NumConcurrentWALs.Set(numConcurrentWALs)
 					numConcurrentWALLock.Unlock()
 
@@ -139,6 +140,7 @@ func New(ctx context.Context, cfg *config.Config, circMetrics *cgm.CirconusMetri
 
 					numConcurrentWALLock.Lock()
 					numConcurrentWALs--
+					wc.metrics.Gauge(metrics.WALNumConcurrentWALs, numConcurrentWALs)
 					metrics.WALStats.NumConcurrentWALs.Set(numConcurrentWALs)
 					numConcurrentWALLock.Unlock()
 
