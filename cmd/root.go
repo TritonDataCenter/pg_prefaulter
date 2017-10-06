@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	stdlog "log"
+	"net/http"
 	"os"
 	"strings"
 
@@ -118,6 +119,19 @@ already loaded into the OS'es filesystem cache.
 			log.Debug().Msg("starting gops(1) agent")
 			if err := agent.Listen(nil); err != nil {
 				log.Fatal().Err(err).Msg("unable to start the gops(1) agent thread")
+			}
+		}()
+
+		go func() {
+			if !viper.GetBool(config.KeyPProfEnable) {
+				log.Debug().Msg("pprof endpoint disabled by request")
+				return
+			}
+
+			pprofPort := viper.GetInt(config.KeyPProfPort)
+			log.Debug().Int("pprof-port", pprofPort).Msg("starting pprof endpoing agent")
+			if err := http.ListenAndServe(fmt.Sprintf("localhost:%d", pprofPort), nil); err != nil {
+				log.Fatal().Err(err).Msg("unable to start the pprof listener")
 			}
 		}()
 
@@ -302,6 +316,34 @@ func init() {
 		)
 
 		RootCmd.PersistentFlags().BoolP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyPProfEnable
+			longName     = "enable-pprof"
+			shortName    = ""
+			defaultValue = true
+			description  = "Enable the pprof endpoint interface"
+		)
+
+		RootCmd.PersistentFlags().BoolP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key          = config.KeyPProfPort
+			longName     = "pprof-port"
+			shortName    = ""
+			defaultValue = 4242
+			description  = "Specify the pprof port"
+		)
+
+		RootCmd.PersistentFlags().Uint16P(longName, shortName, defaultValue, description)
 		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
 		viper.SetDefault(key, defaultValue)
 	}

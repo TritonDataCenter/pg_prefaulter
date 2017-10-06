@@ -26,6 +26,8 @@ const (
 
 	KeyAgentJSONLogging = "run.json-logs"
 	KeyNumIOThreads     = "run.num-io-threads"
+	KeyPProfEnable      = "run.pprof.enable"
+	KeyPProfPort        = "run.pprof.port"
 	KeyRetryDBInit      = "run.retry-db-init"
 	KeyAgentUseColor    = "run.use-color"
 
