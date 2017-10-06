@@ -107,12 +107,10 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 				wc.wg.Done()
 			}()
 
-			const heartbeat = 60 * time.Second
 			for {
 				select {
 				case <-wc.ctx.Done():
 					return
-				case <-time.After(heartbeat):
 				case walFile, ok := <-walFilePrefaultWorkQueue:
 					if !ok {
 						return
