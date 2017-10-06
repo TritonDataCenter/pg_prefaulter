@@ -8,17 +8,16 @@
   revision = "2efee857e7cfd4f3d0138cc3cbb1b4966962b93a"
 
 [[projects]]
-  branch = "gh-37"
+  branch = "master"
   name = "github.com/bluele/gcache"
   packages = ["."]
-  revision = "cd4b07ab8dfbdc5307407e21ecae479a1a1c8412"
-  source = "https://github.com/sean-/gcache.git"
+  revision = "e73ab21fcf77aff5ef6312a12d0060a0b2c53d21"
 
 [[projects]]
   name = "github.com/circonus-labs/circonus-gometrics"
   packages = [".","api","api/config","checkmgr"]
-  revision = "efbf5b0bb26c98837afb6b3ec17f1a69f5be861f"
-  version = "v1.1.0"
+  revision = "3be4af140156ebe726078c5b4b04c3a2708e228f"
+  version = "v1.1.1"
 
 [[projects]]
   branch = "master"
@@ -66,7 +65,7 @@
   branch = "master"
   name = "github.com/jackc/pgx"
   packages = [".","chunkreader","internal/sanitize","pgio","pgproto3","pgtype"]
-  revision = "e7924c75904a3345ba87508146f4074ae7ee9c60"
+  revision = "63f58fd32edb5684b9e9f4cfaac847c6b42b3917"
 
 [[projects]]
   branch = "master"
@@ -93,16 +92,10 @@
   revision = "d0303fe809921458f417bcf828397a65db30a7e4"
 
 [[projects]]
-  name = "github.com/pelletier/go-buffruneio"
-  packages = ["."]
-  revision = "c37440a7cf42ac63b919c752ca73a85067e05992"
-  version = "v0.2.0"
-
-[[projects]]
   name = "github.com/pelletier/go-toml"
   packages = ["."]
-  revision = "5ccdfb18c776b740aecaf085c4d9a2779199c279"
-  version = "v1.0.0"
+  revision = "16398bac157da96aa88f98a2df640c7f32af1da2"
+  version = "v1.0.1"
 
 [[projects]]
   name = "github.com/pkg/errors"
@@ -120,7 +113,7 @@
   branch = "master"
   name = "github.com/spf13/afero"
   packages = [".","mem"]
-  revision = "ee1bd8ee15a1306d1f9201acc41ef39cd9f99a1b"
+  revision = "3de492c3cda9570c77bc1f495857bfbf4b760efd"
 
 [[projects]]
   name = "github.com/spf13/cast"
@@ -132,7 +125,7 @@
   branch = "master"
   name = "github.com/spf13/cobra"
   packages = ["."]
-  revision = "b78744579491c1ceeaaa3b40205e56b0591b93a3"
+  revision = "e8e7fe03552f0645ccf4c507f38bcf88b1c2b2d6"
 
 [[projects]]
   branch = "master"
@@ -162,7 +155,7 @@
   branch = "master"
   name = "golang.org/x/text"
   packages = ["internal/gen","internal/triegen","internal/ucd","transform","unicode/cldr","unicode/norm"]
-  revision = "1cbadb444a806fd9430d14ad08967ed91da4fa0a"
+  revision = "d82c1812e304abfeeabd31e995a115a2855bf642"
 
 [[projects]]
   branch = "v2"
@@ -173,6 +166,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "0a25b879ee38e4c495c394497e05129c2f4adde4b9b8127ef3ec28f1f7b80816"
+  inputs-digest = "36484737d8a26b665ea68ea0abd06718daee0367127383d3e6a963218bc2995e"
   solver-name = "gps-cdcl"
   solver-version = 1
