@@ -86,6 +86,12 @@
   version = "v1.7.3"
 
 [[projects]]
+  name = "github.com/mattn/go-isatty"
+  packages = ["."]
+  revision = "0360b2af4f38e8d38c7fce2a9f4e702702d73a39"
+  version = "v0.0.3"
+
+[[projects]]
   branch = "master"
   name = "github.com/mitchellh/mapstructure"
   packages = ["."]
@@ -166,6 +172,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "36484737d8a26b665ea68ea0abd06718daee0367127383d3e6a963218bc2995e"
+  inputs-digest = "bd88d991aa9b28ab872737979cfa87abec3767e4ec8964f27f8cb93f69931847"
   solver-name = "gps-cdcl"
   solver-version = 1

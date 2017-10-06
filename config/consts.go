@@ -22,8 +22,10 @@ const (
 
 	KeyLogLevel = "log.level"
 
-	KeyNumIOThreads = "run.num-io-threads"
-	KeyRetryDBInit  = "run.retry-db-init"
+	KeyAgentJSONLogging = "run.json-logs"
+	KeyNumIOThreads     = "run.num-io-threads"
+	KeyRetryDBInit      = "run.retry-db-init"
+	KeyAgentUseColor    = "run.use-color"
 
 	KeyPGData         = "postgresql.pgdata"
 	KeyPGDatabase     = "postgresql.database"
@@ -60,4 +62,10 @@ const (
 	MetricsXLogDumpLinesMatched  = "wal-xlogdump-lines-matched"
 	MetricsXLogDumpLinesScanned  = "wal-xlogdump-lines-scanned"
 	MetricsXLogPrefaulted        = "wal-xlog-prefaulted-count"
+)
+
+const (
+	// Use a log format that resembles time.RFC3339Nano but includes all trailing
+	// zeros so that we get fixed-width logging.
+	LogFormat = "2006-01-02T15:04:05.000000000Z07:00"
 )

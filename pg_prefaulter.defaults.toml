@@ -19,8 +19,16 @@
 #pg_xlogdump-path = "/usr/local/bin/pg_xlogdump"
 
 [run]
-num-io-threads = 1500
-retry-db-init = false
+# json-logs changes its default depending on whether or not stdout is a TTY.  If
+# stdout is a TTY the default changes to false.
+#json-logs = true
+#
+#num-io-threads = 1500
+#retry-db-init = false
+#
+# use-color changes its default depending on whether or not stdout is a TTY.
+# If stdout is a TTY the default changes to true.
+#use-color = false
 
 [circonus]
 #debug = false

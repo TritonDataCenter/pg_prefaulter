@@ -16,14 +16,15 @@ package cmd
 import (
 	_ "expvar"
 	"fmt"
+	"io"
 	stdlog "log"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/google/gops/agent"
 	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/joyent/pg_prefaulter/config"
+	isatty "github.com/mattn/go-isatty"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -57,6 +58,38 @@ already loaded into the OS'es filesystem cache.
 `,
 
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Re-initialize logging with user-supplied configuration parameters
+		{
+			// os.Stdout isn't guaranteed to be thread-safe, wrap in a sync writer.
+			// Files are guaranteed to be safe, terminals are not.
+			var logWriter io.Writer
+			if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+				logWriter = zerolog.SyncWriter(os.Stdout)
+			} else {
+				logWriter = os.Stdout
+			}
+
+			var zlog zerolog.Logger
+			if !viper.GetBool(config.KeyAgentJSONLogging) ||
+				!viper.IsSet(config.KeyAgentJSONLogging) && (isatty.IsTerminal(os.Stdout.Fd()) ||
+					isatty.IsCygwinTerminal(os.Stdout.Fd())) {
+
+				useColor := viper.GetBool(config.KeyAgentUseColor)
+				w := zerolog.ConsoleWriter{
+					Out:     logWriter,
+					NoColor: !useColor,
+				}
+				zlog = zerolog.New(w).With().Timestamp().Logger()
+			} else {
+				zlog = zerolog.New(logWriter).With().Timestamp().Logger()
+			}
+
+			log.Logger = zlog
+
+			stdlog.SetFlags(0)
+			stdlog.SetOutput(zlog)
+		}
+
 		// Perform input validation
 
 		switch logLevel := strings.ToUpper(viper.GetString(config.KeyLogLevel)); logLevel {
@@ -105,7 +138,7 @@ func init() {
 	// zerolog.TimestampFieldName = "t"
 	// zerolog.LevelFieldName = "l"
 	// zerolog.MessageFieldName = "m"
-	zerolog.TimeFieldFormat = time.RFC3339Nano
+	zerolog.TimeFieldFormat = config.LogFormat
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 
 	// os.Stderr isn't guaranteed to be thread-safe, wrap in a sync writer.  Files
@@ -128,6 +161,42 @@ func init() {
 		)
 
 		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key         = config.KeyAgentJSONLogging
+			longName    = "json-logs"
+			shortName   = "J"
+			description = "Log using structured JSON logging instead of human-friendly log output"
+		)
+
+		defaultValue := true
+		if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+			defaultValue = false
+		}
+
+		RootCmd.PersistentFlags().BoolP(longName, shortName, defaultValue, description)
+		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
+		viper.SetDefault(key, defaultValue)
+	}
+
+	{
+		const (
+			key         = config.KeyAgentUseColor
+			longName    = "use-color"
+			shortName   = "C"
+			description = "Use ASCII colors"
+		)
+
+		defaultValue := false
+		if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+			defaultValue = true
+		}
+
+		RootCmd.PersistentFlags().BoolP(longName, shortName, defaultValue, description)
 		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
 		viper.SetDefault(key, defaultValue)
 	}
