@@ -124,11 +124,13 @@ func (fhc *FileHandleCache) PrefaultPage(ioCacheKey structs.IOCacheKey) error {
 	numConcurrentReads++
 	metrics.FHStats.NumConcurrentReads.Set(numConcurrentReads)
 	fhc.metrics.Gauge(metrics.FHNumConcurrentReads, numConcurrentReads)
+	fhc.metrics.RecordValue(metrics.FHNumConcurrentReads, numConcurrentReads)
 	numConcurrentReadLock.Unlock()
 	defer func() {
 		numConcurrentReadLock.Lock()
 		numConcurrentReads--
 		fhc.metrics.Gauge(metrics.FHNumConcurrentReads, numConcurrentReads)
+		fhc.metrics.RecordValue(metrics.FHNumConcurrentReads, numConcurrentReads)
 		metrics.FHStats.NumConcurrentReads.Set(numConcurrentReads)
 		numConcurrentReadLock.Unlock()
 	}()
