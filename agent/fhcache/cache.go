@@ -17,7 +17,6 @@ import (
 	"context"
 	"io"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/bluele/gcache"
@@ -32,8 +31,11 @@ import (
 )
 
 var (
-	// Add a few atomic counters to verify the system is behaving as expected.
-	openFDCount  uint64
+	// Add a few counters to verify the system is behaving as expected.
+	openLock    sync.RWMutex
+	openFDCount uint64
+
+	closeLock    sync.RWMutex
 	closeFDCount uint64
 )
 
@@ -205,12 +207,14 @@ func (fhc *FileHandleCache) Purge() {
 
 	fhc.c.Purge()
 
-	closeCount := atomic.LoadUint64(&closeFDCount)
-	openCount := atomic.LoadUint64(&openFDCount)
-	if openCount != closeCount {
+	openLock.RLock()
+	defer openLock.RUnlock()
+	closeLock.RLock()
+	defer closeLock.RUnlock()
+	if openFDCount != closeFDCount {
 		// Open vs close accountancy errors are considered fatal
 		log.Panic().
-			Uint64("close-count", closeCount).Uint64("open-count", openCount).
+			Uint64("close-count", closeFDCount).Uint64("open-count", openFDCount).
 			Msgf("bad, open vs close count not the same after purge")
 	}
 }
