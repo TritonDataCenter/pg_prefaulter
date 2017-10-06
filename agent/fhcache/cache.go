@@ -22,6 +22,7 @@ import (
 
 	"github.com/bluele/gcache"
 	cgm "github.com/circonus-labs/circonus-gometrics"
+	"github.com/joyent/pg_prefaulter/agent/metrics"
 	"github.com/joyent/pg_prefaulter/agent/structs"
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/joyent/pg_prefaulter/lib"
@@ -101,6 +102,11 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics) 
 	return fhc, nil
 }
 
+var (
+	numConcurrentReadLock sync.Mutex
+	numConcurrentReads    int64
+)
+
 // PrefaultPage uses the given IOCacheKey to:
 //
 // 1) open a relation's segment, if necessary
@@ -111,6 +117,17 @@ func (fhc *FileHandleCache) PrefaultPage(ioCacheKey structs.IOCacheKey) error {
 		return errors.Wrap(err, "unable to obtain file handle")
 	}
 	defer fhcValue.lock.RUnlock()
+
+	numConcurrentReadLock.Lock()
+	numConcurrentReads++
+	metrics.FHStats.NumConcurrentReads.Set(numConcurrentReads)
+	numConcurrentReadLock.Unlock()
+	defer func() {
+		numConcurrentReadLock.Lock()
+		numConcurrentReads--
+		metrics.FHStats.NumConcurrentReads.Set(numConcurrentReads)
+		numConcurrentReadLock.Unlock()
+	}()
 
 	var buf [pg.HeapPageSize]byte
 	pageNum := pg.HeapSegmentPageNum(ioCacheKey.Block)

@@ -62,7 +62,7 @@ monitor the state of `pg_prefaulter`:
 
 [source,sh]
 ----
-$ expvarmon -ports 4242 -i 1s -vars "mem:memstats.Alloc,mem:memstats.Sys,mem:memstats.HeapAlloc,mem:memstats.HeapInuse,duration:memstats.PauseNs,duration:memstats.PauseTotalNs,str:sender-state,str:peer-sync-state,mem:durability-lag,mem:flush-lag,mem:visibility-lag,duration:visibility-lag_ms,str:db-state,str:connected,str:timeline-id,num-wal-files"
+$ expvarmon -ports 4242 -i 1s -vars "mem:memstats.Alloc,mem:memstats.Sys,mem:memstats.HeapAlloc,mem:memstats.HeapInuse,duration:memstats.PauseNs,duration:memstats.PauseTotalNs,str:sender-state,str:peer-sync-state,mem:durability-lag,mem:flush-lag,mem:visibility-lag,duration:visibility-lag_ms,str:db-state,str:connected,str:timeline-id,num-wal-files,num-concurrent-reads,num-concurrent-wals"
 ----
 
 [[config]]

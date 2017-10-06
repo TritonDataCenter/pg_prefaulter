@@ -33,6 +33,10 @@ const (
 	VersionSelfDate       = "version-self-date"
 	VersionSelfVersion    = "version-self-version"
 	WALFileCandidate      = "num-wal-candidates"
+
+	FHNumConcurrentReads = "num-concurrent-reads"
+
+	WALNumConcurrentWALs = "num-concurrent-wals"
 )
 
 type _DBStats struct {
@@ -48,7 +52,23 @@ type _DBStats struct {
 	VisibilityLagMs    *expvar.Int
 }
 
-var DBStats _DBStats
+type _FHStats struct {
+	NumConcurrentReads *expvar.Int
+}
+
+type _IOStats struct {
+}
+
+type _WALStats struct {
+	NumConcurrentWALs *expvar.Int
+}
+
+var (
+	DBStats  _DBStats
+	FHStats  _FHStats
+	IOStats  _IOStats
+	WALStats _WALStats
+)
 
 func init() {
 	DBStats = _DBStats{
@@ -62,5 +82,15 @@ func init() {
 		TimelineID:         expvar.NewInt(DBTimelineID),
 		VisibilityLagBytes: expvar.NewInt(DBLagVisibilityBytes),
 		VisibilityLagMs:    expvar.NewInt(DBLagVisibilityMs),
+	}
+
+	FHStats = _FHStats{
+		NumConcurrentReads: expvar.NewInt(FHNumConcurrentReads),
+	}
+
+	IOStats = _IOStats{}
+
+	WALStats = _WALStats{
+		NumConcurrentWALs: expvar.NewInt(WALNumConcurrentWALs),
 	}
 }
