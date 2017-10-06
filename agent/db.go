@@ -24,34 +24,13 @@ import (
 
 	"github.com/alecthomas/units"
 	"github.com/jackc/pgx"
+	"github.com/joyent/pg_prefaulter/agent/metrics"
 	"github.com/joyent/pg_prefaulter/agent/proc"
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/joyent/pg_prefaulter/pg"
 	"github.com/pkg/errors"
 	log "github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
-)
-
-const (
-	metricsDBConnectionStateName = "connected"
-	metricsDBLagDurability       = "durability"
-	metricsDBLagDurabilityBytes  = "durability-lag"
-	metricsDBLagFlush            = "flush"
-	metricsDBLagFlushBytes       = "flush-lag"
-	metricsDBLagVisibility       = "visibility"
-	metricsDBLagVisibilityBytes  = "visibility-lag"
-	metricsDBLastTransaction     = "last-transaction_ms"
-	metricsDBLastTransactionAge  = "last-transaction-age_ms"
-	metricsDBPeerSyncState       = "peer-sync-state"
-	metricsDBSenderState         = "sender-state"
-	metricsDBState               = "db-state"
-	metricsDBTimelineID          = "timeline-id"
-	metricsDBVersionPG           = "version-pg"
-	metricsDBWALCount            = "num-wal-files"
-	metricsWALFileCandidate      = "num-wal-candidates"
-	metricsVersionSelfCommit     = "version-self-commit"
-	metricsVersionSelfDate       = "version-self-date"
-	metricsVersionSelfVersion    = "version-self-version"
 )
 
 type (
@@ -119,10 +98,10 @@ func (a *Agent) dbState() (_DBState, error) {
 
 	switch inRecovery {
 	case true:
-		statsIsPrimary = false
+		metrics.DBStats.DBState.Set("follower")
 		return _DBStateFollower, nil
 	case false:
-		statsIsPrimary = true
+		metrics.DBStats.DBState.Set("primary")
 		return _DBStatePrimary, nil
 	default:
 		panic("what is logic?")
@@ -194,7 +173,10 @@ func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 	}
 
 	var numWALFiles uint64
-	defer func() { a.metrics.Add(metricsDBWALCount, numWALFiles) }()
+	defer func() {
+		a.metrics.Add(metrics.DBWALCount, numWALFiles)
+		metrics.DBStats.NumWALFiles.Set(int64(numWALFiles))
+	}()
 
 	func() {
 		// If the timeline changed, purge the walCache assuming we're going to need
@@ -207,7 +189,8 @@ func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 			}
 			a.lastTimelineID = timelineID
 		}
-		a.metrics.Set(metricsDBTimelineID, uint64(timelineID))
+		a.metrics.Set(metrics.DBTimelineID, uint64(timelineID))
+		metrics.DBStats.TimelineID.Set(int64(timelineID))
 	}()
 
 	walFiles := make(pg.WALFiles, 0, len(oldLSNs))
@@ -253,7 +236,7 @@ func (a *Agent) initDBPool(cfg *config.Config) (err error) {
 			return errors.Wrap(err, "unable to query DB version")
 		}
 		log.Debug().Uint32("backend-pid", conn.PID()).Str("version", version).Msg("established DB connection")
-		a.metrics.SetTextValue(metricsDBVersionPG, version)
+		a.metrics.SetTextValue(metrics.DBVersionPG, version)
 
 		return nil
 	}
@@ -278,14 +261,31 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (units.Base2Bytes, error) {
 
 	// Log whether or not we're connected or not
 	var connectedState _DBConnectionState
-	defer func() { a.metrics.SetTextValue(metricsDBConnectionStateName, connectedState.String()) }()
+	defer func() { a.metrics.SetTextValue(metrics.DBConnectionStateName, connectedState.String()) }()
 
 	var sql string
 	switch lagQuery {
 	case _QueryLagPrimary:
-		sql = `SELECT state, sync_state, (pg_xlog_location_diff(sent_location, write_location))::FLOAT8 AS durability_lag_bytes, (pg_xlog_location_diff(sent_location, flush_location))::FLOAT8 AS flush_lag_bytes, (pg_xlog_location_diff(sent_location, replay_location))::FLOAT8 AS visibility_lag_bytes, COALESCE(EXTRACT(EPOCH FROM '0'::INTERVAL), 0.0)::FLOAT8 AS last_commit_age FROM pg_stat_replication ORDER BY visibility_lag_bytes LIMIT 1`
+		sql = `SELECT
+  state,
+  sync_state,
+  (pg_xlog_location_diff(sent_location, write_location))::FLOAT8 AS durability_lag_bytes,
+  (pg_xlog_location_diff(sent_location, flush_location))::FLOAT8 AS flush_lag_bytes,
+  (pg_xlog_location_diff(sent_location, replay_location))::FLOAT8 AS visibility_lag_bytes,
+  COALESCE(EXTRACT(EPOCH FROM '0'::INTERVAL), 0.0)::FLOAT8 AS visibility_lag_ms
+FROM
+  pg_catalog.pg_stat_replication
+ORDER BY visibility_lag_bytes
+LIMIT 1`
 	case _QueryLagFollower:
-		sql = `SELECT 'receiving' AS state, 'applying' AS sync_state, 0.0::FLOAT8 AS durability_lag_bytes, 0.0::FLOAT8 AS flush_lag_bytes, COALESCE((pg_xlog_location_diff(pg_last_xlog_receive_location(), pg_last_xlog_replay_location()))::FLOAT8, 0.0)::FLOAT8 AS visibility_lag_bytes, COALESCE(EXTRACT(EPOCH FROM (NOW() - pg_last_xact_replay_timestamp())::INTERVAL), 0.0)::FLOAT8 AS last_commit_age LIMIT 1`
+		sql = `SELECT
+  'receiving' AS state,
+  'applying' AS sync_state,
+  0.0::FLOAT8 AS durability_lag_bytes,
+  0.0::FLOAT8 AS flush_lag_bytes,
+  COALESCE((pg_xlog_location_diff(pg_last_xlog_receive_location(), pg_last_xlog_replay_location()))::FLOAT8, 0.0)::FLOAT8 AS visibility_lag_bytes,
+  COALESCE(EXTRACT(EPOCH FROM (NOW() - pg_last_xact_replay_timestamp())::INTERVAL), 0.0)::FLOAT8 AS visibility_lag_ms
+LIMIT 1`
 	default:
 		panic(fmt.Sprintf("unsupported query: %v", lagQuery))
 	}
@@ -299,10 +299,10 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (units.Base2Bytes, error) {
 	defer rows.Close()
 
 	var senderState, syncState string
-	var durabilityLag, flushLag, visibilityLag, txnAge float64 = math.NaN(), math.NaN(), math.NaN(), math.NaN()
+	var durabilityLagBytes, flushLagBytes, visibilityLagBytes, visibilityLagMs float64 = math.NaN(), math.NaN(), math.NaN(), math.NaN()
 	var numRows int
 	for rows.Next() {
-		err = rows.Scan(&senderState, &syncState, &durabilityLag, &flushLag, &visibilityLag, &txnAge)
+		err = rows.Scan(&senderState, &syncState, &durabilityLagBytes, &flushLagBytes, &visibilityLagBytes, &visibilityLagMs)
 		if err != nil {
 			return unknownLag, errors.Wrap(err, "unable to scan lag response")
 		}
@@ -310,30 +310,26 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (units.Base2Bytes, error) {
 		numRows++
 
 		// Record useful stats that will be emitted in the logs
-		statsSenderState = senderState
-		statsSyncState = syncState
-		statsDurabilityLag = units.Base2Bytes(durabilityLag)
-		statsFlushLag = units.Base2Bytes(flushLag)
-		statsVisibilityLag = units.Base2Bytes(visibilityLag)
-		statsTXNAgeMilliseconds = time.Duration(txnAge) * (time.Second / time.Millisecond)
+		metrics.DBStats.SenderState.Set(senderState)
+		metrics.DBStats.PeerSyncState.Set(syncState)
+		metrics.DBStats.DurabilityLagBytes.Set(int64(units.Base2Bytes(durabilityLagBytes)))
+		metrics.DBStats.FlushLagBytes.Set(int64(units.Base2Bytes(flushLagBytes)))
+		metrics.DBStats.VisibilityLagBytes.Set(int64(units.Base2Bytes(visibilityLagBytes)))
+		metrics.DBStats.VisibilityLagMs.Set(int64(time.Duration(visibilityLagMs) * (time.Second / time.Millisecond)))
 
 		// Only record values that actually change.  Don't record metrics that are
 		// missing on a shard member.
 		switch lagQuery {
 		case _QueryLagPrimary:
-			a.metrics.Gauge(metricsDBLagDurability, durabilityLag)
-			a.metrics.Gauge(metricsDBLagDurabilityBytes, durabilityLag)
-			a.metrics.Gauge(metricsDBLagFlush, flushLag)
-			a.metrics.Gauge(metricsDBLagFlushBytes, flushLag)
+			a.metrics.Gauge(metrics.DBLagDurabilityBytes, durabilityLagBytes)
+			a.metrics.Gauge(metrics.DBLagFlushBytes, flushLagBytes)
 		case _QueryLagFollower:
-			a.metrics.Gauge(metricsDBLastTransaction, txnAge)
-			a.metrics.Gauge(metricsDBLastTransactionAge, txnAge)
 		}
 
-		a.metrics.Gauge(metricsDBLagVisibility, visibilityLag)
-		a.metrics.Gauge(metricsDBLagVisibilityBytes, visibilityLag)
-		a.metrics.SetTextValue(metricsDBPeerSyncState, syncState)
-		a.metrics.SetTextValue(metricsDBSenderState, senderState)
+		a.metrics.Gauge(metrics.DBLagVisibilityBytes, visibilityLagBytes)
+		a.metrics.Gauge(metrics.DBLagVisibilityMs, visibilityLagMs)
+		a.metrics.SetTextValue(metrics.DBPeerSyncState, syncState)
+		a.metrics.SetTextValue(metrics.DBSenderState, senderState)
 	}
 
 	if rows.Err() != nil {
@@ -342,11 +338,13 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (units.Base2Bytes, error) {
 
 	if numRows == 0 {
 		connectedState = _DBConnectionStateDisconnected
+		metrics.DBStats.ConnectionState.Set(_DBConnectionStateDisconnected.String())
 	} else {
 		connectedState = _DBConnectionStateConnected
+		metrics.DBStats.ConnectionState.Set(_DBConnectionStateConnected.String())
 	}
 
-	return units.Base2Bytes(visibilityLag), nil
+	return units.Base2Bytes(visibilityLagBytes), nil
 }
 
 type LSNQuery int
@@ -432,18 +430,6 @@ func (a *Agent) predictDBWALFilenames(walFile pg.WALFilename) ([]pg.WALFilename,
 	return lsn.Readahead(timelineID, maxBytes), nil
 }
 
-var (
-	statsIsPrimary bool
-
-	statsSenderState string
-	statsSyncState   string
-
-	statsDurabilityLag      units.Base2Bytes
-	statsFlushLag           units.Base2Bytes
-	statsVisibilityLag      units.Base2Bytes
-	statsTXNAgeMilliseconds time.Duration
-)
-
 // startDBStats is a periodic stats routine that emits stats regarding the
 // database to the log files.
 func (a *Agent) startDBStats() {
@@ -453,13 +439,13 @@ func (a *Agent) startDBStats() {
 			return
 		case <-time.After(config.StatsInterval):
 			log.Debug().
-				Str("sender-state", statsSenderState).
-				Bool("primary", statsIsPrimary).
-				Str("syn-state", statsSyncState).
-				Int64("durability-lag", int64(statsDurabilityLag)).
-				Int64("flush-lag", int64(statsFlushLag)).
-				Int64("visibility-lag-ms", int64(statsVisibilityLag)).
-				Dur("replay-delay", statsTXNAgeMilliseconds).
+				Str(metrics.DBSenderState, metrics.DBStats.SenderState.Value()).
+				Str(metrics.DBState, metrics.DBStats.DBState.Value()).
+				Str(metrics.DBPeerSyncState, metrics.DBStats.PeerSyncState.Value()).
+				Int64(metrics.DBLagDurabilityBytes, metrics.DBStats.DurabilityLagBytes.Value()).
+				Int64(metrics.DBLagFlushBytes, metrics.DBStats.FlushLagBytes.Value()).
+				Int64(metrics.DBLagVisibilityBytes, metrics.DBStats.VisibilityLagBytes.Value()).
+				Dur(metrics.DBLagVisibilityMs, time.Duration(metrics.DBStats.VisibilityLagMs.Value())).
 				Msg("db-stats")
 		}
 	}

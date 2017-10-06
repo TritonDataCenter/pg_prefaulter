@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx"
 	"github.com/joyent/pg_prefaulter/agent/fhcache"
 	"github.com/joyent/pg_prefaulter/agent/iocache"
+	"github.com/joyent/pg_prefaulter/agent/metrics"
 	"github.com/joyent/pg_prefaulter/agent/proc"
 	"github.com/joyent/pg_prefaulter/agent/walcache"
 	"github.com/joyent/pg_prefaulter/buildtime"
@@ -70,9 +71,9 @@ func New(cfg *config.Config) (a *Agent, err error) {
 		return nil, errors.Wrap(err, "unable to create a stats agent")
 	}
 	// Emit a handful of constants to reflect what the state of this process is.
-	a.metrics.SetTextValue(metricsVersionSelfCommit, buildtime.COMMIT)
-	a.metrics.SetTextValue(metricsVersionSelfDate, buildtime.DATE)
-	a.metrics.SetTextValue(metricsVersionSelfVersion, buildtime.VERSION)
+	a.metrics.SetTextValue(metrics.VersionSelfCommit, buildtime.COMMIT)
+	a.metrics.SetTextValue(metrics.VersionSelfDate, buildtime.DATE)
+	a.metrics.SetTextValue(metrics.VersionSelfVersion, buildtime.VERSION)
 
 	a.setupSignals()
 
@@ -140,10 +141,10 @@ func (a *Agent) Start() {
 	}
 
 	var dbState _DBState
-	a.metrics.SetTextFunc(metricsDBState, func() string {
+	a.metrics.SetTextFunc(metrics.DBState, func() string {
 		return dbState.String()
 	})
-	defer a.metrics.RemoveTextFunc(metricsDBState)
+	defer a.metrics.RemoveTextFunc(metrics.DBState)
 
 	// The main event loop for the run command.  The run event loop runs through
 	// the following six steps:
@@ -219,7 +220,7 @@ RETRY:
 		}
 
 		// 5) Fault in PostgreSQL heap pages identified in the WAL files
-		if _, err = a.prefaultWALFiles(walFiles); err != nil {
+		if sleepBetweenIterations, err = a.prefaultWALFiles(walFiles); err != nil {
 			retry := handleErrors(err, "unable to prefault WAL files")
 			if retry {
 				goto RETRY
@@ -333,7 +334,7 @@ func (a *Agent) getWALFiles() (pg.WALFiles, error) {
 		}
 	}
 
-	a.metrics.SetGauge(metricsWALFileCandidate, len(walFiles))
+	a.metrics.SetGauge(metrics.WALFileCandidate, len(walFiles))
 
 	return walFiles, nil
 }

@@ -16,7 +16,6 @@ package fhcache
 import (
 	"os"
 	"sync"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
@@ -50,7 +49,9 @@ func (fh *_Value) close() {
 		log.Error().Err(err).Msg("unable to close FD")
 	}
 	fh.f = nil
-	atomic.AddUint64(&closeFDCount, 1)
+	closeLock.Lock()
+	closeFDCount++
+	closeLock.Unlock()
 }
 
 func (value *_Value) open(pgdataPath string) (*os.File, error) {
@@ -59,7 +60,9 @@ func (value *_Value) open(pgdataPath string) (*os.File, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "unable to open relation segment %q", filename)
 	}
-	atomic.AddUint64(&openFDCount, 1)
+	openLock.Lock()
+	openFDCount++
+	openLock.Unlock()
 
 	return f, nil
 }

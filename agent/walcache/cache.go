@@ -33,6 +33,7 @@ import (
 	"github.com/bluele/gcache"
 	cgm "github.com/circonus-labs/circonus-gometrics"
 	"github.com/joyent/pg_prefaulter/agent/iocache"
+	"github.com/joyent/pg_prefaulter/agent/metrics"
 	"github.com/joyent/pg_prefaulter/agent/structs"
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/joyent/pg_prefaulter/lib"
@@ -77,12 +78,17 @@ type WALCache struct {
 	metrics *cgm.CirconusMetrics
 }
 
-func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, ioCache *iocache.IOCache) (*WALCache, error) {
+var (
+	numConcurrentWALLock sync.Mutex
+	numConcurrentWALs    int64
+)
+
+func New(ctx context.Context, cfg *config.Config, circMetrics *cgm.CirconusMetrics, ioCache *iocache.IOCache) (*WALCache, error) {
 	walWorkers := pg.NumOldLSNs * int(math.Ceil(float64(cfg.ReadaheadBytes)/float64(pg.WALSegmentSize)))
 
 	wc := &WALCache{
 		ctx:     ctx,
-		metrics: metrics,
+		metrics: circMetrics,
 		cfg:     &cfg.WALCacheConfig,
 
 		inFlightWALFiles: make(map[pg.WALFilename]struct{}, walWorkers),
@@ -107,18 +113,23 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 				wc.wg.Done()
 			}()
 
-			const heartbeat = 60 * time.Second
 			for {
 				select {
 				case <-wc.ctx.Done():
 					return
-				case <-time.After(heartbeat):
 				case walFile, ok := <-walFilePrefaultWorkQueue:
 					if !ok {
 						return
 					}
 
 					start := time.Now()
+
+					numConcurrentWALLock.Lock()
+					numConcurrentWALs++
+					wc.metrics.Gauge(metrics.WALNumConcurrentWALs, numConcurrentWALs)
+					wc.metrics.RecordValue(metrics.WALNumConcurrentWALs, float64(numConcurrentWALs))
+					metrics.WALStats.NumConcurrentWALs.Set(numConcurrentWALs)
+					numConcurrentWALLock.Unlock()
 
 					if err := wc.prefaultWALFile(walFile); err != nil {
 						// If we had a problem prefaulting in the WAL file, for whatever
@@ -127,6 +138,13 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics, 
 					} else {
 						wc.metrics.Increment(config.MetricsWALFaultCount)
 					}
+
+					numConcurrentWALLock.Lock()
+					numConcurrentWALs--
+					wc.metrics.Gauge(metrics.WALNumConcurrentWALs, numConcurrentWALs)
+					wc.metrics.RecordValue(metrics.WALNumConcurrentWALs, float64(numConcurrentWALs))
+					metrics.WALStats.NumConcurrentWALs.Set(numConcurrentWALs)
+					numConcurrentWALLock.Unlock()
 
 					// Inserts into wc.inFlightWALFile happen in FaultWALFile()
 					wc.inFlightLock.Lock()

@@ -17,11 +17,11 @@ import (
 	"context"
 	"io"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/bluele/gcache"
 	cgm "github.com/circonus-labs/circonus-gometrics"
+	"github.com/joyent/pg_prefaulter/agent/metrics"
 	"github.com/joyent/pg_prefaulter/agent/structs"
 	"github.com/joyent/pg_prefaulter/config"
 	"github.com/joyent/pg_prefaulter/lib"
@@ -31,8 +31,11 @@ import (
 )
 
 var (
-	// Add a few atomic counters to verify the system is behaving as expected.
-	openFDCount  uint64
+	// Add a few counters to verify the system is behaving as expected.
+	openLock    sync.RWMutex
+	openFDCount uint64
+
+	closeLock    sync.RWMutex
 	closeFDCount uint64
 )
 
@@ -101,6 +104,11 @@ func New(ctx context.Context, cfg *config.Config, metrics *cgm.CirconusMetrics) 
 	return fhc, nil
 }
 
+var (
+	numConcurrentReadLock sync.Mutex
+	numConcurrentReads    int64
+)
+
 // PrefaultPage uses the given IOCacheKey to:
 //
 // 1) open a relation's segment, if necessary
@@ -111,6 +119,21 @@ func (fhc *FileHandleCache) PrefaultPage(ioCacheKey structs.IOCacheKey) error {
 		return errors.Wrap(err, "unable to obtain file handle")
 	}
 	defer fhcValue.lock.RUnlock()
+
+	numConcurrentReadLock.Lock()
+	numConcurrentReads++
+	metrics.FHStats.NumConcurrentReads.Set(numConcurrentReads)
+	fhc.metrics.Gauge(metrics.FHNumConcurrentReads, numConcurrentReads)
+	fhc.metrics.RecordValue(metrics.FHNumConcurrentReads, float64(numConcurrentReads))
+	numConcurrentReadLock.Unlock()
+	defer func() {
+		numConcurrentReadLock.Lock()
+		numConcurrentReads--
+		fhc.metrics.Gauge(metrics.FHNumConcurrentReads, numConcurrentReads)
+		fhc.metrics.RecordValue(metrics.FHNumConcurrentReads, float64(numConcurrentReads))
+		metrics.FHStats.NumConcurrentReads.Set(numConcurrentReads)
+		numConcurrentReadLock.Unlock()
+	}()
 
 	var buf [pg.HeapPageSize]byte
 	pageNum := pg.HeapSegmentPageNum(ioCacheKey.Block)
@@ -188,12 +211,14 @@ func (fhc *FileHandleCache) Purge() {
 
 	fhc.c.Purge()
 
-	closeCount := atomic.LoadUint64(&closeFDCount)
-	openCount := atomic.LoadUint64(&openFDCount)
-	if openCount != closeCount {
+	openLock.RLock()
+	defer openLock.RUnlock()
+	closeLock.RLock()
+	defer closeLock.RUnlock()
+	if openFDCount != closeFDCount {
 		// Open vs close accountancy errors are considered fatal
 		log.Panic().
-			Uint64("close-count", closeCount).Uint64("open-count", openCount).
+			Uint64("close-count", closeFDCount).Uint64("open-count", openFDCount).
 			Msgf("bad, open vs close count not the same after purge")
 	}
 }
