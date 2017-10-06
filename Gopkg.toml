@@ -27,8 +27,7 @@
 
 [[override]]
   name = "github.com/bluele/gcache"
-  source = "https://github.com/sean-/gcache.git"
-  branch = "gh-37"
+  branch = "master"
 
 [[constraint]]
   branch = "master"
