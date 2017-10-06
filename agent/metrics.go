@@ -13,7 +13,9 @@
 
 package agent
 
-import "expvar"
+import (
+	"expvar"
+)
 
 const (
 	metricsDBConnectionStateName = "connected"
@@ -33,28 +35,32 @@ const (
 	metricsWALFileCandidate      = "num-wal-candidates"
 )
 
-var (
-	statsDBConnectionState  *expvar.String
-	statsDBNumWALFiles      *expvar.Int
-	statsDBState            *expvar.String
-	statsDBTimelineID       *expvar.Int
-	statsDurabilityLagBytes *expvar.Int
-	statsFlushLagBytes      *expvar.Int
-	statsSenderState        *expvar.String
-	statsSyncState          *expvar.String
-	statsVisibilityLagBytes *expvar.Int
-	statsVisibilityLagMs    *expvar.Int
-)
+type _DBStats struct {
+	connectionState    *expvar.String
+	numWALFiles        *expvar.Int
+	dbState            *expvar.String
+	timelineID         *expvar.Int
+	durabilityLagBytes *expvar.Int
+	flushLagBytes      *expvar.Int
+	senderState        *expvar.String
+	peerSyncState      *expvar.String
+	visibilityLagBytes *expvar.Int
+	visibilityLagMs    *expvar.Int
+}
+
+var dbStats _DBStats
 
 func init() {
-	statsDBConnectionState = expvar.NewString(metricsDBConnectionStateName)
-	statsDBNumWALFiles = expvar.NewInt(metricsDBWALCount)
-	statsDBState = expvar.NewString(metricsDBState)
-	statsDBTimelineID = expvar.NewInt(metricsDBTimelineID)
-	statsDurabilityLagBytes = expvar.NewInt(metricsDBLagDurabilityBytes)
-	statsFlushLagBytes = expvar.NewInt(metricsDBLagFlushBytes)
-	statsSenderState = expvar.NewString(metricsDBSenderState)
-	statsSyncState = expvar.NewString(metricsDBPeerSyncState)
-	statsVisibilityLagBytes = expvar.NewInt(metricsDBLagVisibilityBytes)
-	statsVisibilityLagMs = expvar.NewInt(metricsDBLagVisibilityMs)
+	dbStats = _DBStats{
+		connectionState:    expvar.NewString(metricsDBConnectionStateName),
+		numWALFiles:        expvar.NewInt(metricsDBWALCount),
+		dbState:            expvar.NewString(metricsDBState),
+		timelineID:         expvar.NewInt(metricsDBTimelineID),
+		durabilityLagBytes: expvar.NewInt(metricsDBLagDurabilityBytes),
+		flushLagBytes:      expvar.NewInt(metricsDBLagFlushBytes),
+		senderState:        expvar.NewString(metricsDBSenderState),
+		peerSyncState:      expvar.NewString(metricsDBPeerSyncState),
+		visibilityLagBytes: expvar.NewInt(metricsDBLagVisibilityBytes),
+		visibilityLagMs:    expvar.NewInt(metricsDBLagVisibilityMs),
+	}
 }

@@ -97,10 +97,10 @@ func (a *Agent) dbState() (_DBState, error) {
 
 	switch inRecovery {
 	case true:
-		statsDBState.Set("follower")
+		dbStats.dbState.Set("follower")
 		return _DBStateFollower, nil
 	case false:
-		statsDBState.Set("primary")
+		dbStats.dbState.Set("primary")
 		return _DBStatePrimary, nil
 	default:
 		panic("what is logic?")
@@ -174,7 +174,7 @@ func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 	var numWALFiles uint64
 	defer func() {
 		a.metrics.Add(metricsDBWALCount, numWALFiles)
-		statsDBNumWALFiles.Set(int64(numWALFiles))
+		dbStats.numWALFiles.Set(int64(numWALFiles))
 	}()
 
 	func() {
@@ -189,6 +189,7 @@ func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 			a.lastTimelineID = timelineID
 		}
 		a.metrics.Set(metricsDBTimelineID, uint64(timelineID))
+		dbStats.timelineID.Set(int64(timelineID))
 	}()
 
 	walFiles := make(pg.WALFiles, 0, len(oldLSNs))
@@ -219,7 +220,7 @@ func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 	}
 
 	a.metrics.SetTextValue(proc.MetricsWALLookupMode, "db")
-	statsDBTimelineID.Set(int64(len(walFiles)))
+	dbStats.numWALFiles.Set(int64(len(walFiles)))
 
 	return walFiles, nil
 }
@@ -309,12 +310,12 @@ LIMIT 1`
 		numRows++
 
 		// Record useful stats that will be emitted in the logs
-		statsSenderState.Set(senderState)
-		statsSyncState.Set(syncState)
-		statsDurabilityLagBytes.Set(int64(units.Base2Bytes(durabilityLagBytes)))
-		statsFlushLagBytes.Set(int64(units.Base2Bytes(flushLagBytes)))
-		statsVisibilityLagBytes.Set(int64(units.Base2Bytes(visibilityLagBytes)))
-		statsVisibilityLagMs.Set(int64(time.Duration(visibilityLagMs) * (time.Second / time.Millisecond)))
+		dbStats.senderState.Set(senderState)
+		dbStats.peerSyncState.Set(syncState)
+		dbStats.durabilityLagBytes.Set(int64(units.Base2Bytes(durabilityLagBytes)))
+		dbStats.flushLagBytes.Set(int64(units.Base2Bytes(flushLagBytes)))
+		dbStats.visibilityLagBytes.Set(int64(units.Base2Bytes(visibilityLagBytes)))
+		dbStats.visibilityLagMs.Set(int64(time.Duration(visibilityLagMs) * (time.Second / time.Millisecond)))
 
 		// Only record values that actually change.  Don't record metrics that are
 		// missing on a shard member.
@@ -337,10 +338,10 @@ LIMIT 1`
 
 	if numRows == 0 {
 		connectedState = _DBConnectionStateDisconnected
-		statsDBConnectionState.Set(_DBConnectionStateDisconnected.String())
+		dbStats.connectionState.Set(_DBConnectionStateDisconnected.String())
 	} else {
 		connectedState = _DBConnectionStateConnected
-		statsDBConnectionState.Set(_DBConnectionStateConnected.String())
+		dbStats.connectionState.Set(_DBConnectionStateConnected.String())
 	}
 
 	return units.Base2Bytes(visibilityLagBytes), nil
@@ -438,13 +439,13 @@ func (a *Agent) startDBStats() {
 			return
 		case <-time.After(config.StatsInterval):
 			log.Debug().
-				Str(metricsDBSenderState, statsSenderState.String()).
-				Str(metricsDBState, statsDBState.String()).
-				Str(metricsDBPeerSyncState, statsSyncState.String()).
-				Int64(metricsDBLagDurabilityBytes, statsDurabilityLagBytes.Value()).
-				Int64(metricsDBLagFlushBytes, statsFlushLagBytes.Value()).
-				Int64(metricsDBLagVisibilityBytes, statsVisibilityLagBytes.Value()).
-				Dur(metricsDBLagVisibilityMs, time.Duration(statsVisibilityLagMs.Value())).
+				Str(metricsDBSenderState, dbStats.senderState.String()).
+				Str(metricsDBState, dbStats.dbState.String()).
+				Str(metricsDBPeerSyncState, dbStats.peerSyncState.String()).
+				Int64(metricsDBLagDurabilityBytes, dbStats.durabilityLagBytes.Value()).
+				Int64(metricsDBLagFlushBytes, dbStats.flushLagBytes.Value()).
+				Int64(metricsDBLagVisibilityBytes, dbStats.visibilityLagBytes.Value()).
+				Dur(metricsDBLagVisibilityMs, time.Duration(dbStats.visibilityLagMs.Value())).
 				Msg("db-stats")
 		}
 	}
