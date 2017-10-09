@@ -152,7 +152,7 @@ func init() {
 	// zerolog.TimestampFieldName = "t"
 	// zerolog.LevelFieldName = "l"
 	// zerolog.MessageFieldName = "m"
-	zerolog.TimeFieldFormat = config.LogFormat
+	zerolog.TimeFieldFormat = config.LogTimeFormat
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 
 	// os.Stderr isn't guaranteed to be thread-safe, wrap in a sync writer.  Files
