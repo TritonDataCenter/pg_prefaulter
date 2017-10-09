@@ -108,6 +108,124 @@ following is a reasonable default `pg_prefaulter.toml` configuration file.
 A complete configuration file with all options listed can be seen in
 `pg_prefaulter.toml.sample-all`.
 
+[[cli-usage]]
+== CLI Help
+
+=== Global Help
+
+[source,sh]
+----
+$ pg_prefaulter --help
+
+PostgreSQL's WAL-receiver applies WAL files in serial.  This design implicitly
+assumes that the heap page required to apply the WAL entry is within the
+operating system's filesystem cache.  If the filesystem cache does not contain
+the necessary heap page, the PostgreSQL WAL apply process will be block while
+the OS faults in the page from its storage.  For large working sets of data or
+when the filesystem cache is cold, this is problematic for streaming replicas
+because they will lag and fall behind.
+
+pg_prefaulter(1) mitigates this serially scheduled IO problem by
+reading WAL entries via pg_xlogdump(1) and performing parallel pread(2) calls in
+order to "pre-fault" the page into the OS's filesystem cache so that when the
+PostgreSQL WAL receiver goes to apply a WAL entry to its heap, the page is
+already loaded into the OS'es filesystem cache.
+
+Usage:
+  pg_prefaulter [command]
+
+Available Commands:
+  help        Help about any command
+  run         Run pg_prefaulter
+  version     pg_prefaulter version information
+
+Flags:
+  -a, --circonus-api-key string                         Circonus API token
+      --circonus-api-url string                         Circonus API URL (default "https://api.circonus.com/v2")
+      --circonus-broker-id string                       Circonus Broker ID
+      --circonus-broker-max-response-time string        Circonus Broker Max Response Time (default "500ms")
+      --circonus-broker-select-tag string               Circonus Broker Select Tag
+      --circonus-check-display-name string              Circonus Check Display Name (default "pg_prefaulter")
+      --circonus-check-force-metric-activation string   Circonus Check Force Metric Activation (default "false")
+      --circonus-check-id string                        Circonus Check ID
+      --circonus-check-instance-id string               Circonus Check Instance ID (default "tenacity.local:pg_prefaulter")
+      --circonus-check-max-url-age string               Circonus Check Max URL Age (default "5m")
+      --circonus-check-search-tag string                Circonus Check Search Tag (default "app:pg_prefaulter,host:tenacity.local")
+      --circonus-check-secret string                    Circonus Check Secret
+      --circonus-check-tags string                      Circonus Check Tags (default "app:pg_prefaulter")
+      --circonus-check-target-host string               Circonus Check Target Host (default "tenacity.local")
+      --circonus-debug                                  Enable Circonus Debug
+      --circonus-enable-metrics                         Enable Circonus metrics (default true)
+      --circonus-submission-url string                  Circonus Check Submission URL
+      --config string                                   config file (default "pg_prefaulter.toml")
+  -d, --database string                                 postgres (default "postgres")
+      --enable-agent                                    Enable the gops(1) agent interface (default true)
+      --enable-pprof                                    Enable the pprof endpoint interface (default true)
+  -h, --help                                            help for pg_prefaulter
+  -H, --hostname string                                 Hostname to connect to PostgreSQL (default "/tmp")
+  -F, --log-format string                               Specify the log format ("auto", "zerolog", "human", or "bunyan") (default "auto")
+  -l, --log-level string                                Log level (default "INFO")
+  -D, --pgdata string                                   Path to PGDATA (default "pgdata")
+  -p, --port uint                                       Hostname to connect to PostgreSQL (default 5432)
+      --pprof-port uint16                               Specify the pprof port (default 4242)
+  -C, --use-color                                       Use ASCII colors (default true)
+  -U, --username string                                 Username to connect to PostgreSQL (default "postgres")
+
+Use "pg_prefaulter [command] --help" for more information about a command.
+----
+
+=== Run Help
+
+[source,sh]
+----
+$ pg_prefaulter run --help
+Run pg_prefaulter and begin faulting in PostgreSQL pages
+
+Usage:
+  pg_prefaulter run [flags]
+
+Flags:
+  -h, --help                         help for run
+  -m, --mode string                  Mode of operation of the database: "auto", "primary", "follower" (default "auto")
+  -N, --num-io-threads uint          Number of IO threads to spawn for IOs
+  -i, --poll-interval string         Interval to poll the database for state change (default "1s")
+      --retry-db-init                Retry connecting to the database during initialization
+  -n, --wal-readahead-bytes string   Maximum number of bytes to pre-fault (default "32MiB")
+  -X, --xlog-mode string             pg_xlogdump(1) variant: "xlog" or "pg" (default "pg")
+  -x, --xlogdump-bin string          Path to pg_xlogdump(1) (default "/usr/local/bin/pg_xlogdump")
+
+Global Flags:
+  -a, --circonus-api-key string                         Circonus API token
+      --circonus-api-url string                         Circonus API URL (default "https://api.circonus.com/v2")
+      --circonus-broker-id string                       Circonus Broker ID
+      --circonus-broker-max-response-time string        Circonus Broker Max Response Time (default "500ms")
+      --circonus-broker-select-tag string               Circonus Broker Select Tag
+      --circonus-check-display-name string              Circonus Check Display Name (default "pg_prefaulter")
+      --circonus-check-force-metric-activation string   Circonus Check Force Metric Activation (default "false")
+      --circonus-check-id string                        Circonus Check ID
+      --circonus-check-instance-id string               Circonus Check Instance ID (default "tenacity.local:pg_prefaulter")
+      --circonus-check-max-url-age string               Circonus Check Max URL Age (default "5m")
+      --circonus-check-search-tag string                Circonus Check Search Tag (default "app:pg_prefaulter,host:tenacity.local")
+      --circonus-check-secret string                    Circonus Check Secret
+      --circonus-check-tags string                      Circonus Check Tags (default "app:pg_prefaulter")
+      --circonus-check-target-host string               Circonus Check Target Host (default "tenacity.local")
+      --circonus-debug                                  Enable Circonus Debug
+      --circonus-enable-metrics                         Enable Circonus metrics (default true)
+      --circonus-submission-url string                  Circonus Check Submission URL
+      --config string                                   config file (default "pg_prefaulter.toml")
+  -d, --database string                                 postgres (default "postgres")
+      --enable-agent                                    Enable the gops(1) agent interface (default true)
+      --enable-pprof                                    Enable the pprof endpoint interface (default true)
+  -H, --hostname string                                 Hostname to connect to PostgreSQL (default "/tmp")
+  -F, --log-format string                               Specify the log format ("auto", "zerolog", "human", or "bunyan") (default "auto")
+  -l, --log-level string                                Log level (default "INFO")
+  -D, --pgdata string                                   Path to PGDATA (default "pgdata")
+  -p, --port uint                                       Hostname to connect to PostgreSQL (default 5432)
+      --pprof-port uint16                               Specify the pprof port (default 4242)
+  -C, --use-color                                       Use ASCII colors (default true)
+  -U, --username string                                 Username to connect to PostgreSQL (default "postgres")
+----
+
 [[development]]
 == Development
 

@@ -47,7 +47,7 @@ type Config struct {
 
 type Agent struct {
 	PostgreSQLPIDPath string
-	JSONLogging       bool
+	LogFormat         LogFormat
 	RetryInit         bool
 	UseColors         bool
 }
@@ -80,7 +80,7 @@ type WALCacheConfig struct {
 	XLogDumpPath   string
 }
 
-func NewDefault() (*Config, error) {
+func NewDefault() (cfg *Config, err error) {
 	cmc := &cgm.Config{}
 	if viper.GetBool(KeyCirconusEnabled) {
 		cmc.Interval = "10s"
@@ -141,8 +141,11 @@ func NewDefault() (*Config, error) {
 		const postmasterPIDFilename = "postmaster.pid"
 		agentConfig.PostgreSQLPIDPath = path.Join(viper.GetString(KeyPGData), postmasterPIDFilename)
 		agentConfig.UseColors = viper.GetBool(KeyAgentUseColor)
-		agentConfig.JSONLogging = viper.GetBool(KeyAgentJSONLogging)
 		agentConfig.RetryInit = viper.GetBool(KeyRetryDBInit)
+		agentConfig.LogFormat, err = LogLevelParse(viper.GetString(KeyAgentLogFormat))
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to parse the log format")
+		}
 	}
 
 	fhConfig := FHCacheConfig{}

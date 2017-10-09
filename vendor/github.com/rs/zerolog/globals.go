@@ -31,6 +31,13 @@ var (
 	// DurationFieldInteger renders Dur fields as integer instead of float if
 	// set to true.
 	DurationFieldInteger = false
+
+	// NumericLogLevels emits an integer for the log level instead of a string.
+	NumericLogLevels = false
+
+	// BunyanLogLevels enables Bunyan error levels when NumericLogLevels is set to
+	// true.  https://www.npmjs.com/package/bunyan#levels
+	BunyanLogLevels = false
 )
 
 var (
