@@ -19,9 +19,16 @@
 #pg_xlogdump-path = "/usr/local/bin/pg_xlogdump"
 
 [run]
-# json-logs changes its default depending on whether or not stdout is a TTY.  If
-# stdout is a TTY the default changes to false.
-#json-logs = true
+# log-format specifies the type of logs to emit.  Valid log formats include:
+#
+# * "auto" - change the default logging format to be "json" or "human" depending
+#   on whether or not stdout is a TTY.  If stdout is a TTY, "auto" will
+#   automatically change to "human", otherwise it will select "json."
+# * "json" - Zerolog default JSON output
+# * "bunyan" - Joyent's Bunyan logging format:
+#   https://www.npmjs.com/package/bunyan
+# * "human" - Human-friendly log output
+#log-format = "auto"
 #
 #num-io-threads = 1500
 #retry-db-init = false

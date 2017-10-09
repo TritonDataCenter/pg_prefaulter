@@ -26,6 +26,7 @@ import (
 	"github.com/joyent/pg_prefaulter/buildtime"
 	"github.com/joyent/pg_prefaulter/config"
 	isatty "github.com/mattn/go-isatty"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -70,19 +71,58 @@ already loaded into the OS'es filesystem cache.
 				logWriter = os.Stdout
 			}
 
-			var zlog zerolog.Logger
-			if !viper.GetBool(config.KeyAgentJSONLogging) ||
-				!viper.IsSet(config.KeyAgentJSONLogging) && (isatty.IsTerminal(os.Stdout.Fd()) ||
-					isatty.IsCygwinTerminal(os.Stdout.Fd())) {
+			logFmt, err := config.LogLevelParse(viper.GetString(config.KeyAgentLogFormat))
+			if err != nil {
+				return errors.Wrap(err, "unable to parse log format")
+			}
 
+			if logFmt == config.LogFormatAuto {
+				if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+					logFmt = config.LogFormatHuman
+				} else {
+					logFmt = config.LogFormatZerolog
+				}
+			}
+
+			var zlog zerolog.Logger
+			switch logFmt {
+			case config.LogFormatZerolog:
+				zlog = zerolog.New(logWriter).With().Timestamp().Logger()
+			case config.LogFormatBunyan:
+				hostname, err := os.Hostname()
+				switch {
+				case err != nil:
+					return errors.Wrap(err, "unable to determine the hostname")
+				case hostname == "":
+					return fmt.Errorf("unable to use bunyan logging with an empty hostname")
+				}
+
+				// NOTE(seanc@): Core fields taken from: https:
+				// //www.npmjs.com/package/bunyan#core-fields
+				zerolog.LevelFieldName = "l"
+				zerolog.NumericLogLevels = true
+				zerolog.BunyanLogLevels = true
+
+				zerolog.TimeFieldFormat = config.LogTimeFormatBunyan
+				zerolog.TimestampFieldName = "time"
+				zerolog.MessageFieldName = "msg"
+
+				zlog = zerolog.New(logWriter).With().
+					Timestamp().
+					Str("v", "0"). // Bunyan version
+					Str("name", buildtime.PROGNAME).
+					Str("hostname", hostname).
+					Int("pid", os.Getpid()).
+					Logger()
+			case config.LogFormatHuman:
 				useColor := viper.GetBool(config.KeyAgentUseColor)
 				w := zerolog.ConsoleWriter{
 					Out:     logWriter,
 					NoColor: !useColor,
 				}
 				zlog = zerolog.New(w).With().Timestamp().Logger()
-			} else {
-				zlog = zerolog.New(logWriter).With().Timestamp().Logger()
+			default:
+				return fmt.Errorf("unsupported log format: %q")
 			}
 
 			log.Logger = zlog
@@ -149,9 +189,6 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// zerolog.TimestampFieldName = "t"
-	// zerolog.LevelFieldName = "l"
-	// zerolog.MessageFieldName = "m"
 	zerolog.TimeFieldFormat = config.LogTimeFormat
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 
@@ -181,18 +218,14 @@ func init() {
 
 	{
 		const (
-			key         = config.KeyAgentJSONLogging
-			longName    = "json-logs"
-			shortName   = "J"
-			description = "Log using structured JSON logging instead of human-friendly log output"
+			key         = config.KeyAgentLogFormat
+			longName    = "log-format"
+			shortName   = "F"
+			description = `Specify the log format ("auto", "zerolog", "human", or "bunyan")`
 		)
 
-		defaultValue := true
-		if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-			defaultValue = false
-		}
-
-		RootCmd.PersistentFlags().BoolP(longName, shortName, defaultValue, description)
+		defaultValue := config.LogFormatAuto.String()
+		RootCmd.PersistentFlags().StringP(longName, shortName, defaultValue, description)
 		viper.BindPFlag(key, RootCmd.PersistentFlags().Lookup(longName))
 		viper.SetDefault(key, defaultValue)
 	}
