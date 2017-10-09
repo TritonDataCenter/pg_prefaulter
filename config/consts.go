@@ -80,7 +80,7 @@ const (
 	LogTimeFormat = "2006-01-02T15:04:05.000000000Z07:00"
 
 	// 8601 Extended Format: YYYY-MM-DDTHH:mm:ss.sssZ
-	LogTimeFormatBunyan = "2006-01-02T15:04:05.000Z07:00"
+	LogTimeFormatBunyan = "2006-01-02T15:04:05.000Z"
 
 	StatsInterval = 60 * time.Second
 )

@@ -99,7 +99,7 @@ already loaded into the OS'es filesystem cache.
 
 				// NOTE(seanc@): Core fields taken from: https:
 				// //www.npmjs.com/package/bunyan#core-fields
-				zerolog.LevelFieldName = "l"
+				zerolog.LevelFieldName = "level"
 				zerolog.NumericLogLevels = true
 				zerolog.BunyanLogLevels = true
 
@@ -109,7 +109,7 @@ already loaded into the OS'es filesystem cache.
 
 				zlog = zerolog.New(logWriter).With().
 					Timestamp().
-					Str("v", "0"). // Bunyan version
+					Int("v", 0). // Bunyan version
 					Str("name", buildtime.PROGNAME).
 					Str("hostname", hostname).
 					Int("pid", os.Getpid()).
