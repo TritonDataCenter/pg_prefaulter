@@ -11,7 +11,7 @@
   branch = "master"
   name = "github.com/bluele/gcache"
   packages = ["."]
-  revision = "e73ab21fcf77aff5ef6312a12d0060a0b2c53d21"
+  revision = "472614239ac7e5bc6461e237c798a6ebd5aff8c1"
 
 [[projects]]
   name = "github.com/circonus-labs/circonus-gometrics"
