@@ -16,8 +16,8 @@
 [[projects]]
   name = "github.com/circonus-labs/circonus-gometrics"
   packages = [".","api","api/config","checkmgr"]
-  revision = "3be4af140156ebe726078c5b4b04c3a2708e228f"
-  version = "v1.1.1"
+  revision = "5124d2e597dd03e6ebd1f2734ec98dd0ab42c834"
+  version = "v1.1.2"
 
 [[projects]]
   branch = "master"
