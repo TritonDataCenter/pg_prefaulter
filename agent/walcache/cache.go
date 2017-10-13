@@ -62,9 +62,10 @@ var xlogdumpRE = regexp.MustCompile(`s/d/r:([\d]+)/([\d]+)/([\d]+) (?:tid |blk/o
 // c) deliberately intollerant of scans because we know the input is monotonic
 // d) sized to include only the KeyWALReadahead
 type WALCache struct {
-	ctx context.Context
-	wg  sync.WaitGroup
-	cfg *config.WALCacheConfig
+	ctx       context.Context
+	pgConnCtx context.Context
+	wg        sync.WaitGroup
+	cfg       *config.WALCacheConfig
 
 	purgeLock sync.Mutex
 	c         gcache.Cache
@@ -83,13 +84,14 @@ var (
 	numConcurrentWALs    int64
 )
 
-func New(ctx context.Context, cfg *config.Config, circMetrics *cgm.CirconusMetrics, ioCache *iocache.IOCache) (*WALCache, error) {
+func New(pgConnCtx context.Context, ctx context.Context, cfg *config.Config, circMetrics *cgm.CirconusMetrics, ioCache *iocache.IOCache) (*WALCache, error) {
 	walWorkers := pg.NumOldLSNs * int(math.Ceil(float64(cfg.ReadaheadBytes)/float64(pg.WALSegmentSize)))
 
 	wc := &WALCache{
-		ctx:     ctx,
-		metrics: circMetrics,
-		cfg:     &cfg.WALCacheConfig,
+		pgConnCtx: pgConnCtx,
+		ctx:       ctx,
+		metrics:   circMetrics,
+		cfg:       &cfg.WALCacheConfig,
 
 		inFlightWALFiles: make(map[pg.WALFilename]struct{}, walWorkers),
 		ioCache:          ioCache,
@@ -253,6 +255,11 @@ func (wc *WALCache) ReadaheadBytes() units.Base2Bytes {
 	return wc.cfg.ReadaheadBytes
 }
 
+// ResetPGConnCtx resets a pgConnCtx
+func (wc *WALCache) ResetPGConnCtx(ctx context.Context) {
+	wc.pgConnCtx = ctx
+}
+
 // Wait blocks until the WALCache finishes shutting down its workers (including
 // the workers of its IOCache).
 func (wc *WALCache) Wait() {
@@ -275,7 +282,7 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 		return errors.Wrap(err, "WAL file does not exist")
 	}
 
-	cmd := exec.CommandContext(wc.ctx, wc.cfg.XLogDumpPath, "-f", walFileAbs)
+	cmd := exec.CommandContext(wc.pgConnCtx, wc.cfg.XLogDumpPath, "-f", walFileAbs)
 	var errbuf bytes.Buffer
 	cmd.Stderr = &errbuf
 

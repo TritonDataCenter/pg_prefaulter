@@ -45,6 +45,9 @@ type Agent struct {
 	shutdown    func()
 	shutdownCtx context.Context
 
+	pgConnCtx      context.Context
+	pgConnShutdown func()
+
 	metrics *cgm.CirconusMetrics
 
 	// pgStateLock protects the following values.  lastWALLog and lastTimelineID
@@ -76,6 +79,7 @@ func New(cfg *config.Config) (a *Agent, err error) {
 	a.metrics.SetTextValue(metrics.VersionSelfVersion, buildtime.VERSION)
 
 	a.setupSignals()
+	a.resetPGConnCtx()
 
 	if err := a.initDBPool(cfg); err != nil {
 		return nil, errors.Wrap(err, "unable to initialize db connection pool")
@@ -100,7 +104,7 @@ func New(cfg *config.Config) (a *Agent, err error) {
 	}
 
 	{
-		walCache, err := walcache.New(a.shutdownCtx, cfg, a.metrics, a.ioCache)
+		walCache, err := walcache.New(a.pgConnCtx, a.shutdownCtx, cfg, a.metrics, a.ioCache)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to initialize WAL cache")
 		}
@@ -196,6 +200,7 @@ RETRY:
 		// 2) Dump cache. Calling Purge() on the WALCache purges all downstream
 		//    caches (i.e. ioCache and fhCache).
 		if purgeCache {
+			a.resetPGConnCtx()
 			a.walCache.Purge()
 			purgeCache = false
 		}
@@ -356,6 +361,18 @@ func (a *Agent) prefaultWALFiles(walFiles pg.WALFiles) (moreWork bool, err error
 	}
 
 	return len(waitWALFiles) > pg.NumOldLSNs, nil
+}
+
+// resetPGConnCtx is a convenience function that:
+//
+//    1. Shuts down the current context
+//    2. Creates a new pgConnCtx
+//    3. Resets the pgConnCtx with a new context
+func (a *Agent) resetPGConnCtx() {
+	a.pgConnShutdown()
+	a.pgConnCtx, a.pgConnShutdown = context.WithCancel(a.shutdownCtx)
+
+	a.walCache.ResetPGConnCtx(a.pgConnCtx)
 }
 
 // stopSignalHandler disables the signal handler
