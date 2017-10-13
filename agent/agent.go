@@ -45,6 +45,9 @@ type Agent struct {
 	shutdown    func()
 	shutdownCtx context.Context
 
+	pgConnCtx      context.Context
+	pgConnShutdown func()
+
 	metrics *cgm.CirconusMetrics
 
 	// pgStateLock protects the following values.  lastWALLog and lastTimelineID
@@ -100,7 +103,7 @@ func New(cfg *config.Config) (a *Agent, err error) {
 	}
 
 	{
-		walCache, err := walcache.New(a.shutdownCtx, cfg, a.metrics, a.ioCache)
+		walCache, err := walcache.New(a.pgConnCtx, a.shutdownCtx, cfg, a.metrics, a.ioCache)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to initialize WAL cache")
 		}
@@ -150,8 +153,8 @@ func (a *Agent) Start() {
 	// the following six steps:
 	//
 	// 1) Shutdown if we've been told to shutdown.
-	// 2) Dump caches if a cache-invalidation event occurred.
-	// 3) Sleep if we've been told to sleep in the previous iteration.
+	// 2) Sleep if we've been told to sleep in the previous iteration.
+	// 3) Dump caches if a cache-invalidation event occurred.
 	// 4) Attempt to find WAL files.
 	// 4a) Attempt to query the DB to find the WAL files.
 	// 4b) Attempt to query the process args to find the WAL files.
@@ -193,18 +196,23 @@ RETRY:
 			break RETRY
 		}
 
-		// 2) Dump cache. Calling Purge() on the WALCache purges all downstream
-		//    caches (i.e. ioCache and fhCache).
-		if purgeCache {
-			a.walCache.Purge()
-			purgeCache = false
-		}
-
-		// 3) Sleep
+		// 2) Sleep.  Sleep before purging the WALCache in order to allow processes
+		//    in flight to complete.  If the sleep is not called before the purge,
+		//    it's possible that an in-flight pg_xlogdump(1) would be cancelled
+		//    before it completed a run.  This means that during an unexpected
+		//    shutdown, FDs won't be closed for up to config.KeyPGPollInterval.
 		if !sleepBetweenIterations {
 			d := viper.GetDuration(config.KeyPGPollInterval)
 			time.Sleep(d)
 			sleepBetweenIterations = false
+		}
+
+		// 3) Dump cache. Calling Purge() on the WALCache purges all downstream
+		//    caches (i.e. ioCache and fhCache).
+		if purgeCache {
+			a.resetPGConnCtx()
+			a.walCache.Purge()
+			purgeCache = false
 		}
 
 		// 4) Get WAL files
@@ -356,6 +364,18 @@ func (a *Agent) prefaultWALFiles(walFiles pg.WALFiles) (moreWork bool, err error
 	}
 
 	return len(waitWALFiles) > pg.NumOldLSNs, nil
+}
+
+// resetPGConnCtx is a convenience function that:
+//
+//    1. Shuts down the current context
+//    2. Creates a new pgConnCtx
+//    3. Resets the pgConnCtx with a new context
+func (a *Agent) resetPGConnCtx() {
+	a.pgConnShutdown()
+	a.pgConnCtx, a.pgConnShutdown = context.WithCancel(a.shutdownCtx)
+
+	a.walCache.ResetPGConnCtx(a.pgConnCtx)
 }
 
 // stopSignalHandler disables the signal handler
