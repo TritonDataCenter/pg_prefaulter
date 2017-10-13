@@ -62,10 +62,10 @@ var xlogdumpRE = regexp.MustCompile(`s/d/r:([\d]+)/([\d]+)/([\d]+) (?:tid |blk/o
 // c) deliberately intollerant of scans because we know the input is monotonic
 // d) sized to include only the KeyWALReadahead
 type WALCache struct {
-	ctx       context.Context
-	pgConnCtx context.Context
-	wg        sync.WaitGroup
-	cfg       *config.WALCacheConfig
+	pgConnCtx   context.Context
+	shutdownCtx context.Context
+	wg          sync.WaitGroup
+	cfg         *config.WALCacheConfig
 
 	purgeLock sync.Mutex
 	c         gcache.Cache
@@ -84,14 +84,16 @@ var (
 	numConcurrentWALs    int64
 )
 
-func New(pgConnCtx context.Context, ctx context.Context, cfg *config.Config, circMetrics *cgm.CirconusMetrics, ioCache *iocache.IOCache) (*WALCache, error) {
+func New(pgConnCtx context.Context, shutdownCtx context.Context,
+	cfg *config.Config, circMetrics *cgm.CirconusMetrics,
+	ioCache *iocache.IOCache) (*WALCache, error) {
 	walWorkers := pg.NumOldLSNs * int(math.Ceil(float64(cfg.ReadaheadBytes)/float64(pg.WALSegmentSize)))
 
 	wc := &WALCache{
-		pgConnCtx: pgConnCtx,
-		ctx:       ctx,
-		metrics:   circMetrics,
-		cfg:       &cfg.WALCacheConfig,
+		pgConnCtx:   pgConnCtx,
+		shutdownCtx: shutdownCtx,
+		metrics:     circMetrics,
+		cfg:         &cfg.WALCacheConfig,
 
 		inFlightWALFiles: make(map[pg.WALFilename]struct{}, walWorkers),
 		ioCache:          ioCache,
@@ -117,7 +119,7 @@ func New(pgConnCtx context.Context, ctx context.Context, cfg *config.Config, cir
 
 			for {
 				select {
-				case <-wc.ctx.Done():
+				case <-wc.shutdownCtx.Done():
 					return
 				case walFile, ok := <-walFilePrefaultWorkQueue:
 					if !ok {
@@ -170,7 +172,7 @@ func New(pgConnCtx context.Context, ctx context.Context, cfg *config.Config, cir
 			walFilename := keyRaw.(pg.WALFilename)
 
 			select {
-			case <-wc.ctx.Done():
+			case <-wc.shutdownCtx.Done():
 			case walFilePrefaultWorkQueue <- walFilename:
 			}
 
@@ -178,7 +180,7 @@ func New(pgConnCtx context.Context, ctx context.Context, cfg *config.Config, cir
 		}).
 		Build()
 
-	go lib.LogCacheStats(wc.ctx, wc.c, "walcache-stats")
+	go lib.LogCacheStats(wc.shutdownCtx, wc.c, "walcache-stats")
 
 	return wc, nil
 }
@@ -256,8 +258,8 @@ func (wc *WALCache) ReadaheadBytes() units.Base2Bytes {
 }
 
 // ResetPGConnCtx resets a pgConnCtx
-func (wc *WALCache) ResetPGConnCtx(ctx context.Context) {
-	wc.pgConnCtx = ctx
+func (wc *WALCache) ResetPGConnCtx(pgConnCtx context.Context) {
+	wc.pgConnCtx = pgConnCtx
 }
 
 // Wait blocks until the WALCache finishes shutting down its workers (including
