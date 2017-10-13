@@ -79,7 +79,6 @@ func New(cfg *config.Config) (a *Agent, err error) {
 	a.metrics.SetTextValue(metrics.VersionSelfVersion, buildtime.VERSION)
 
 	a.setupSignals()
-	a.resetPGConnCtx()
 
 	if err := a.initDBPool(cfg); err != nil {
 		return nil, errors.Wrap(err, "unable to initialize db connection pool")

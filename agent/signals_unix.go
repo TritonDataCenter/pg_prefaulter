@@ -33,6 +33,7 @@ func (a *Agent) setupSignals() {
 	signal.Notify(a.signalCh, os.Interrupt, unix.SIGTERM, unix.SIGHUP, unix.SIGPIPE, unix.SIGINFO)
 
 	a.shutdownCtx, a.shutdown = context.WithCancel(context.Background())
+	a.pgConnCtx, a.pgConnShutdown = context.WithCancel(a.shutdownCtx)
 }
 
 // handleSignals runs the signal handler thread
