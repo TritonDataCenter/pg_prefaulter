@@ -45,15 +45,14 @@ type Agent struct {
 	shutdown    func()
 	shutdownCtx context.Context
 
-	pgConnCtx      context.Context
-	pgConnShutdown func()
-
 	metrics *cgm.CirconusMetrics
 
 	// pgStateLock protects the following values.  lastWALLog and lastTimelineID
 	// are the WAL filename and timeline ID from previous call to queryLastLog()
 	// operation.
 	pgStateLock    sync.RWMutex
+	pgConnCtx      context.Context
+	pgConnShutdown func()
 	pool           *pgx.ConnPool
 	poolConfig     *config.DBPool
 	lastWALLog     pg.WALFilename
@@ -103,7 +102,7 @@ func New(cfg *config.Config) (a *Agent, err error) {
 	}
 
 	{
-		walCache, err := walcache.New(a.pgConnCtx, a.shutdownCtx, cfg, a.metrics, a.ioCache)
+		walCache, err := walcache.New(a, a.shutdownCtx, cfg, a.metrics, a.ioCache)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to initialize WAL cache")
 		}
@@ -112,6 +111,15 @@ func New(cfg *config.Config) (a *Agent, err error) {
 	}
 
 	return a, nil
+}
+
+// AcquireConnContext returns a Context used to signal when connections to
+// PostgreSQL should be terminated.
+func (a *Agent) AcquireConnContext() context.Context {
+	a.pgStateLock.RLock()
+	defer a.pgStateLock.RUnlock()
+
+	return a.pgConnCtx
 }
 
 // Loop forever between two modes of operation: sleeping or primary, and a
@@ -366,16 +374,13 @@ func (a *Agent) prefaultWALFiles(walFiles pg.WALFiles) (moreWork bool, err error
 	return len(waitWALFiles) > pg.NumOldLSNs, nil
 }
 
-// resetPGConnCtx is a convenience function that:
-//
-//    1. Shuts down the current context
-//    2. Creates a new pgConnCtx
-//    3. Resets the pgConnCtx with a new context
+// resetPGConnCtx resets the PostgreSQL connection context.
 func (a *Agent) resetPGConnCtx() {
+	a.pgStateLock.Lock()
+	defer a.pgStateLock.Unlock()
+
 	a.pgConnShutdown()
 	a.pgConnCtx, a.pgConnShutdown = context.WithCancel(a.shutdownCtx)
-
-	a.walCache.ResetPGConnCtx(a.pgConnCtx)
 }
 
 // stopSignalHandler disables the signal handler
