@@ -39,7 +39,8 @@
 
 [[constraint]]
   name = "github.com/rs/zerolog"
-  version = "1.2.2"
+  source = "github.com/sean-/zerolog"
+  branch = "numeric-log-levels"
 
 [[constraint]]
   branch = "master"

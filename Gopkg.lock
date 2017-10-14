@@ -110,10 +110,11 @@
   version = "v0.8.0"
 
 [[projects]]
+  branch = "numeric-log-levels"
   name = "github.com/rs/zerolog"
   packages = [".","internal/json","log"]
-  revision = "3ac71fc58dbd43122668a912b755b0979ba9ce1f"
-  version = "v1.3.0"
+  revision = "c1a368cd6d1340db64a416421ce1e14c3e5050d3"
+  source = "github.com/sean-/zerolog"
 
 [[projects]]
   branch = "master"
@@ -172,6 +173,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "bd88d991aa9b28ab872737979cfa87abec3767e4ec8964f27f8cb93f69931847"
+  inputs-digest = "d78900353af739b7a2e4e2c076b01f17167d2ab2e7734c6d29fa393e1ab1f256"
   solver-name = "gps-cdcl"
   solver-version = 1

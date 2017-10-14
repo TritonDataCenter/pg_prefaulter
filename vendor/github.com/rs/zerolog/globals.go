@@ -3,6 +3,20 @@ package zerolog
 import "time"
 import "sync/atomic"
 
+// LogLevelFlag is a bitmask representing flags
+type LogLevelFlag uint
+
+const (
+	// LogLevelNumeric emits an integer for the log level instead of a string.
+	// The default is to emit a string.
+	LogLevelNumeric LogLevelFlag = 1 << iota
+
+	// LogLevelBunyan enables Bunyan's numeric error levels if this flag is set.
+	// In order for this feature to be enabled, the LogLevelNumeric bit must also
+	// be set.  https://www.npmjs.com/package/bunyan#levels
+	LogLevelBunyan
+)
+
 var (
 	// TimestampFieldName is the field name used for the timestamp field.
 	TimestampFieldName = "time"
@@ -32,12 +46,9 @@ var (
 	// set to true.
 	DurationFieldInteger = false
 
-	// NumericLogLevels emits an integer for the log level instead of a string.
-	NumericLogLevels = false
-
-	// BunyanLogLevels enables Bunyan error levels when NumericLogLevels is set to
-	// true.  https://www.npmjs.com/package/bunyan#levels
-	BunyanLogLevels = false
+	// LogLevelFlags sets the flags controlling the style in which the log level
+	// is emitted.
+	LogLevelFlags LogLevelFlag
 )
 
 var (
