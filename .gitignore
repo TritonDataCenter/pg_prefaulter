@@ -5,3 +5,5 @@ pg_prefaulter
 pg_prefaulter.toml
 dist/
 *.log
+.cover.out*
+coverage.html
