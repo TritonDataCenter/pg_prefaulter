@@ -55,6 +55,14 @@ var pgXLogDumpRE = regexp.MustCompile(`rel ([\d]+)/([\d]+)/([\d]+) (?:fork [^\s]
 // [cur:C4/70, xid:450806558, rmid:10(Heap), len/tot_len:737/769, info:0, prev:C4/20] insert: s/d/r:1663/16385/16431 blk/off:32400985/3 header: t_infomask2 12 t_infomask 2051 t_hoff 32
 var xlogdumpRE = regexp.MustCompile(`s/d/r:([\d]+)/([\d]+)/([\d]+) (?:tid |blk/off:)([\d]+)`)
 
+// ConnContextAcquirer is an helper interface passed in by the agent and used to
+// defeat cyclic import restrictions.
+type ConnContextAcquirer interface {
+	// AcquireConnContext() MUST return a Context that is used to signal when
+	// connections to PostgreSQL must be closed.
+	AcquireConnContext() context.Context
+}
+
 // WALCache is a read-through cache to:
 //
 // a) provide a reentrant interface
@@ -62,10 +70,10 @@ var xlogdumpRE = regexp.MustCompile(`s/d/r:([\d]+)/([\d]+)/([\d]+) (?:tid |blk/o
 // c) deliberately intollerant of scans because we know the input is monotonic
 // d) sized to include only the KeyWALReadahead
 type WALCache struct {
-	pgConnCtx   context.Context
-	shutdownCtx context.Context
-	wg          sync.WaitGroup
-	cfg         *config.WALCacheConfig
+	pgConnCtxAcquirer ConnContextAcquirer
+	shutdownCtx       context.Context
+	wg                sync.WaitGroup
+	cfg               *config.WALCacheConfig
 
 	purgeLock sync.Mutex
 	c         gcache.Cache
@@ -84,16 +92,16 @@ var (
 	numConcurrentWALs    int64
 )
 
-func New(pgConnCtx context.Context, shutdownCtx context.Context,
+func New(pgConnCtxAcquirer ConnContextAcquirer, shutdownCtx context.Context,
 	cfg *config.Config, circMetrics *cgm.CirconusMetrics,
 	ioCache *iocache.IOCache) (*WALCache, error) {
 	walWorkers := pg.NumOldLSNs * int(math.Ceil(float64(cfg.ReadaheadBytes)/float64(pg.WALSegmentSize)))
 
 	wc := &WALCache{
-		pgConnCtx:   pgConnCtx,
-		shutdownCtx: shutdownCtx,
-		metrics:     circMetrics,
-		cfg:         &cfg.WALCacheConfig,
+		pgConnCtxAcquirer: pgConnCtxAcquirer,
+		shutdownCtx:       shutdownCtx,
+		metrics:           circMetrics,
+		cfg:               &cfg.WALCacheConfig,
 
 		inFlightWALFiles: make(map[pg.WALFilename]struct{}, walWorkers),
 		ioCache:          ioCache,
@@ -257,11 +265,6 @@ func (wc *WALCache) ReadaheadBytes() units.Base2Bytes {
 	return wc.cfg.ReadaheadBytes
 }
 
-// ResetPGConnCtx resets a pgConnCtx
-func (wc *WALCache) ResetPGConnCtx(pgConnCtx context.Context) {
-	wc.pgConnCtx = pgConnCtx
-}
-
 // Wait blocks until the WALCache finishes shutting down its workers (including
 // the workers of its IOCache).
 func (wc *WALCache) Wait() {
@@ -284,7 +287,8 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 		return errors.Wrap(err, "WAL file does not exist")
 	}
 
-	cmd := exec.CommandContext(wc.pgConnCtx, wc.cfg.XLogDumpPath, "-f", walFileAbs)
+	cmd := exec.CommandContext(wc.pgConnCtxAcquirer.AcquireConnContext(),
+		wc.cfg.XLogDumpPath, "-f", walFileAbs)
 	var errbuf bytes.Buffer
 	cmd.Stderr = &errbuf
 
