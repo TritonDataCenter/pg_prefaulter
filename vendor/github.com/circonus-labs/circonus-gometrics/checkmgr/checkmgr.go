@@ -101,6 +101,8 @@ type BrokerConfig struct {
 	// for a broker to be considered viable it must respond to a
 	// connection attempt within this amount of time e.g. 200ms, 2s, 1m
 	MaxResponseTime string
+	// TLS configuration to use when communicating wtih broker
+	TLSConfig *tls.Config
 }
 
 // Config options
@@ -169,6 +171,7 @@ type CheckManager struct {
 	brokerID              api.IDType
 	brokerSelectTag       api.TagType
 	brokerMaxResponseTime time.Duration
+	brokerTLS             *tls.Config
 
 	// state
 	checkBundle        *api.CheckBundle
@@ -336,6 +339,9 @@ func New(cfg *Config) (*CheckManager, error) {
 	}
 	cm.brokerMaxResponseTime = maxDur
 
+	// add user specified tls config for broker if provided
+	cm.brokerTLS = cfg.Broker.TLSConfig
+
 	// metrics
 	cm.availableMetrics = make(map[string]bool)
 	cm.metricTags = make(map[string][]string)
@@ -399,20 +405,28 @@ func (cm *CheckManager) GetSubmissionURL() (*Trap, error) {
 
 	trap.URL = u
 
-	if u.Scheme == "https" {
-		if cm.certPool == nil {
-			if err := cm.loadCACert(); err != nil {
-				return nil, err
-			}
-		}
-		t := &tls.Config{
-			RootCAs: cm.certPool,
-		}
-		if cm.trapCN != "" {
-			t.ServerName = string(cm.trapCN)
-		}
-		trap.TLS = t
+	if u.Scheme != "https" {
+		return trap, nil
 	}
+
+	// preference user-supplied TLS configuration
+	if cm.brokerTLS != nil {
+		trap.TLS = cm.brokerTLS
+		return trap, nil
+	}
+
+	if cm.certPool == nil {
+		if err := cm.loadCACert(); err != nil {
+			return nil, err
+		}
+	}
+	t := &tls.Config{
+		RootCAs: cm.certPool,
+	}
+	if cm.trapCN != "" {
+		t.ServerName = string(cm.trapCN)
+	}
+	trap.TLS = t
 
 	return trap, nil
 }
@@ -424,18 +438,19 @@ func (cm *CheckManager) ResetTrap() error {
 	}
 
 	cm.trapURL = ""
-	cm.certPool = nil
-	err := cm.initializeTrapURL()
-	return err
+	cm.certPool = nil // force re-fetching CA cert (if custom TLS config not supplied)
+	return cm.initializeTrapURL()
 }
 
 // RefreshTrap check when the last time the URL was reset, reset if needed
-func (cm *CheckManager) RefreshTrap() {
+func (cm *CheckManager) RefreshTrap() error {
 	if cm.trapURL == "" {
-		return
+		return nil
 	}
 
 	if time.Since(cm.trapLastUpdate) >= cm.trapMaxURLAge {
-		cm.ResetTrap()
+		return cm.ResetTrap()
 	}
+
+	return nil
 }

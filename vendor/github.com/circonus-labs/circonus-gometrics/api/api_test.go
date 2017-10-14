@@ -5,6 +5,8 @@
 package api
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,6 +23,16 @@ func callServer() *httptest.Server {
 	}
 
 	return httptest.NewServer(http.HandlerFunc(f))
+}
+
+func sslCallServer() *httptest.Server {
+	f := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, r.Method)
+	}
+
+	return httptest.NewTLSServer(http.HandlerFunc(f))
 }
 
 var (
@@ -278,6 +290,79 @@ func TestApiCall(t *testing.T) {
 		expected := fmt.Sprintf("%s\n", call)
 		if string(resp) != expected {
 			t.Errorf("Expected\n'%s'\ngot\n'%s'\n", expected, resp)
+		}
+	}
+}
+
+func TestSSLApiCall(t *testing.T) {
+	server := sslCallServer()
+	defer server.Close()
+
+	t.Log("using TLSConfig")
+	{
+		c := server.Certificate()
+		cp := x509.NewCertPool()
+		cp.AddCert(c)
+
+		ac := &Config{
+			TokenKey:       "foo",
+			TokenApp:       "bar",
+			TokenAccountID: "0",
+			TLSConfig:      &tls.Config{RootCAs: cp},
+			URL:            server.URL,
+		}
+
+		apih, err := NewAPI(ac)
+		if err != nil {
+			t.Errorf("Expected no error, got '%+v'", err)
+		}
+
+		calls := []string{"GET", "PUT", "POST", "DELETE"}
+		for _, call := range calls {
+			t.Logf("Testing %s call", call)
+			resp, err := apih.apiCall(call, "/", nil)
+			if err != nil {
+				t.Errorf("Expected no error, got '%+v'", resp)
+			}
+
+			expected := fmt.Sprintf("%s\n", call)
+			if string(resp) != expected {
+				t.Errorf("Expected\n'%s'\ngot\n'%s'\n", expected, resp)
+			}
+		}
+	}
+
+	t.Log("using CACert - deprecated, use TLSConfig")
+	{
+		c := server.Certificate()
+		cp := x509.NewCertPool()
+		cp.AddCert(c)
+
+		ac := &Config{
+			TokenKey:       "foo",
+			TokenApp:       "bar",
+			TokenAccountID: "0",
+			CACert:         cp,
+			URL:            server.URL,
+		}
+
+		apih, err := NewAPI(ac)
+		if err != nil {
+			t.Errorf("Expected no error, got '%+v'", err)
+		}
+
+		calls := []string{"GET", "PUT", "POST", "DELETE"}
+		for _, call := range calls {
+			t.Logf("Testing %s call", call)
+			resp, err := apih.apiCall(call, "/", nil)
+			if err != nil {
+				t.Errorf("Expected no error, got '%+v'", resp)
+			}
+
+			expected := fmt.Sprintf("%s\n", call)
+			if string(resp) != expected {
+				t.Errorf("Expected\n'%s'\ngot\n'%s'\n", expected, resp)
+			}
 		}
 	}
 }

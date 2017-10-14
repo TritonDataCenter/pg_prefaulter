@@ -5,6 +5,8 @@
 package checkmgr
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +24,16 @@ import (
 	"github.com/circonus-labs/circonus-gometrics/api"
 	"github.com/circonus-labs/circonus-gometrics/api/config"
 )
+
+func sslBroker() *httptest.Server {
+	f := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, r.Method)
+	}
+
+	return httptest.NewTLSServer(http.HandlerFunc(f))
+}
 
 var (
 	testCMCheck = api.Check{
@@ -302,25 +314,24 @@ func TestNewCheckManager(t *testing.T) {
 		}
 	}
 
-	server := testCMServer()
-	defer server.Close()
-
-	testURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("Error parsing temporary url %v", err)
-	}
-
-	hostParts := strings.Split(testURL.Host, ":")
-	hostPort, err := strconv.Atoi(hostParts[1])
-	if err != nil {
-		t.Fatalf("Error converting port to numeric %v", err)
-	}
-
-	testCMBroker.Details[0].ExternalHost = &hostParts[0]
-	testCMBroker.Details[0].ExternalPort = uint16(hostPort)
-
 	t.Log("Defaults")
 	{
+		server := testCMServer()
+		defer server.Close()
+
+		testURL, err := url.Parse(server.URL)
+		if err != nil {
+			t.Fatalf("Error parsing temporary url %v", err)
+		}
+
+		hostParts := strings.Split(testURL.Host, ":")
+		hostPort, err := strconv.Atoi(hostParts[1])
+		if err != nil {
+			t.Fatalf("Error converting port to numeric %v", err)
+		}
+
+		testCMBroker.Details[0].ExternalHost = &hostParts[0]
+		testCMBroker.Details[0].ExternalPort = uint16(hostPort)
 		cfg := &Config{
 			Log: log.New(os.Stderr, "", log.LstdFlags),
 			API: api.Config{
@@ -352,6 +363,77 @@ func TestNewCheckManager(t *testing.T) {
 		}
 		if trap.URL.String() != suburl {
 			t.Fatalf("Expected '%s' got '%s'", suburl, trap.URL.String())
+		}
+	}
+
+	t.Log("Custom broker ssl config")
+	{
+		server := sslBroker()
+		defer server.Close()
+
+		cfg := &Config{
+			Log: log.New(os.Stderr, "", log.LstdFlags),
+		}
+
+		c := server.Certificate()
+		cp := x509.NewCertPool()
+		cp.AddCert(c)
+
+		cfg.Check.SubmissionURL = server.URL
+		cfg.Broker.TLSConfig = &tls.Config{RootCAs: cp}
+
+		cm, err := NewCheckManager(cfg)
+		if err != nil {
+			t.Fatalf("Expected no error, got '%v'", err)
+		}
+
+		cm.Initialize()
+
+		for !cm.IsReady() {
+			t.Log("\twaiting for cm to init")
+			time.Sleep(1 * time.Second)
+		}
+
+		trap, err := cm.GetSubmissionURL()
+		if err != nil {
+			t.Fatalf("Expected no error, got '%v'", err)
+		}
+		if trap.URL.String() != server.URL {
+			t.Fatalf("Expected '%s' got '%s'", server.URL, trap.URL.String())
+		}
+
+		// quick request to make sure the trap.TLS is the one passed and not the default
+		client := &http.Client{Transport: &http.Transport{TLSClientConfig: trap.TLS}}
+		if _, err := client.Get(trap.URL.String()); err != nil {
+			t.Fatalf("expected no error, got (%s)", err)
+		}
+
+		t.Log("test ResetTrap")
+		{
+			err := cm.ResetTrap()
+			if err != nil {
+				t.Fatalf("expected no error, got (%s)")
+			}
+			trap, err := cm.GetSubmissionURL()
+			if err != nil {
+				t.Fatalf("Expected no error, got '%v'", err)
+			}
+			if trap.URL.String() != server.URL {
+				t.Fatalf("Expected '%s' got '%s'", server.URL, trap.URL.String())
+			}
+		}
+
+		t.Log("test RefreshTrap")
+		{
+			cm.trapLastUpdate = time.Now().Add(-(cm.trapMaxURLAge + 2*time.Second))
+			cm.RefreshTrap()
+			trap, err := cm.GetSubmissionURL()
+			if err != nil {
+				t.Fatalf("Expected no error, got '%v'", err)
+			}
+			if trap.URL.String() != server.URL {
+				t.Fatalf("Expected '%s' got '%s'", server.URL, trap.URL.String())
+			}
 		}
 	}
 }

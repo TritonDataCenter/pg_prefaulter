@@ -142,6 +142,12 @@ func (m *CirconusMetrics) trapCall(payload []byte) (int, error) {
 	}
 
 	defer resp.Body.Close()
+
+	// no content - expected result from circonus-agent when metrics accepted
+	if resp.StatusCode == http.StatusNoContent {
+		return -1, nil
+	}
+
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		m.Log.Printf("[ERROR] reading body, proceeding. %s\n", err)
@@ -152,7 +158,7 @@ func (m *CirconusMetrics) trapCall(payload []byte) (int, error) {
 		m.Log.Printf("[ERROR] parsing body, proceeding. %v (%s)\n", err, body)
 	}
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return 0, errors.New("[ERROR] bad response code: " + strconv.Itoa(resp.StatusCode))
 	}
 	switch v := response["stats"].(type) {
