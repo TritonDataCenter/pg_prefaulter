@@ -185,7 +185,7 @@ func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 		defer a.pgStateLock.Unlock()
 		if a.lastTimelineID != timelineID {
 			if a.lastTimelineID != 0 {
-				a.walCache.Purge()
+				a.walCache.Purge(true)
 			}
 			a.lastTimelineID = timelineID
 		}

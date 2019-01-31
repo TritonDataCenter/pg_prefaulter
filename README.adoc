@@ -2,6 +2,8 @@
 include::front-matter.adoc[]
 :keywords: postgresql, go, wal, fault, prefault, replication
 
+This repository is part of the Joyent Manta project. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
 [[introduction]]
 == Introduction
 

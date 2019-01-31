@@ -252,12 +252,12 @@ func (wc *WALCache) WaitWALFile(walFilename pg.WALFilename) error {
 }
 
 // Purge purges the WALCache of its cache (and all downstream caches)
-func (wc *WALCache) Purge() {
+func (wc *WALCache) Purge(enforceFileHandleAccounting bool) {
 	wc.purgeLock.Lock()
 	defer wc.purgeLock.Unlock()
 
 	wc.c.Purge()
-	wc.ioCache.Purge()
+	wc.ioCache.Purge(enforceFileHandleAccounting)
 }
 
 // ReadaheadBytes returns the number of WAL files to read ahead of PostgreSQL.

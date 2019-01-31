@@ -219,7 +219,7 @@ RETRY:
 		//    caches (i.e. ioCache and fhCache).
 		if purgeCache {
 			a.resetPGConnCtx()
-			a.walCache.Purge()
+			a.walCache.Purge(false)
 			purgeCache = false
 		}
 

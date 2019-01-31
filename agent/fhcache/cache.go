@@ -205,7 +205,7 @@ func (fhc *FileHandleCache) getLocked(ioReq structs.IOCacheKey) (*_Value, error)
 }
 
 // Purge purges the FileHandleCache of its cache (and all downstream caches)
-func (fhc *FileHandleCache) Purge() {
+func (fhc *FileHandleCache) Purge(enforceAccounting bool) {
 	fhc.purgeLock.Lock()
 	defer fhc.purgeLock.Unlock()
 
@@ -216,9 +216,17 @@ func (fhc *FileHandleCache) Purge() {
 	closeLock.RLock()
 	defer closeLock.RUnlock()
 	if openFDCount != closeFDCount {
-		// Open vs close accountancy errors are considered fatal
-		log.Panic().
-			Uint64("close-count", closeFDCount).Uint64("open-count", openFDCount).
-			Msgf("bad, open vs close count not the same after purge")
+		if enforceAccounting {
+			// Open vs close accountancy errors are considered fatal except
+			// in certain circumstances where we know the counts will not
+			// match
+			log.Panic().
+				Uint64("close-count", closeFDCount).Uint64("open-count", openFDCount).
+				Msgf("bad, open vs close count not the same after purge")
+		} else {
+			log.Info().
+				Uint64("close-count", closeFDCount).Uint64("open-count", openFDCount).
+				Msgf("open vs close fd count not the same after purge")
+		}
 	}
 }

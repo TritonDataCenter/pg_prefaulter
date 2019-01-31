@@ -119,12 +119,12 @@ func (ioc *IOCache) GetIFPresent(k interface{}) (interface{}, error) {
 }
 
 // Purge purges the IOCache of its cache (and all downstream caches)
-func (ioc *IOCache) Purge() {
+func (ioc *IOCache) Purge(enforceFileHandleAccounting bool) {
 	ioc.purgeLock.Lock()
 	defer ioc.purgeLock.Unlock()
 
 	ioc.c.Purge()
-	ioc.fhCache.Purge()
+	ioc.fhCache.Purge(enforceFileHandleAccounting)
 }
 
 // Wait blocks until the IOCache finishes shutting down its workers.
