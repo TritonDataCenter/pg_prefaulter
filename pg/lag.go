@@ -1,4 +1,4 @@
-// Copyright © 2017 Joyent, Inc.
+// Copyright © 2019 Joyent, Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -31,7 +31,7 @@ const (
 
 // QueryOldestLSNs queries the database to obtain the current TimelineID and the
 // oldest LSNs that it is processing.
-func QueryOldestLSNs(ctx context.Context, pool *pgx.ConnPool, inProcess WALStatusChecker) (TimelineID, []LSN, error) {
+func QueryOldestLSNs(ctx context.Context, pool *pgx.ConnPool, inProcess WALStatusChecker, walTranslations *WALTranslations) (TimelineID, []LSN, error) {
 	const (
 		errTimelineID TimelineID = 0
 	)
@@ -44,8 +44,7 @@ func QueryOldestLSNs(ctx context.Context, pool *pgx.ConnPool, inProcess WALStatu
 
 	// NOTE(seanc@): keep the number of LSN values in this query with
 	// the NumOldLSNs constant.
-	const lagSQL = "SELECT timeline_id, redo_location, pg_last_xlog_replay_location() FROM pg_control_checkpoint()"
-	rows, err := pool.QueryEx(ctx, lagSQL, nil)
+	rows, err := pool.QueryEx(ctx, walTranslations.Queries.OldestLSNs, nil)
 	if err != nil {
 		return errTimelineID, nil, err
 	}

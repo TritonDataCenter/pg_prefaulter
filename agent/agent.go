@@ -1,4 +1,4 @@
-// Copyright © 2017 Joyent, Inc.
+// Copyright © 2019 Joyent, Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -61,11 +61,13 @@ type Agent struct {
 	fileHandleCache *fhcache.FileHandleCache
 	ioCache         *iocache.IOCache
 	walCache        *walcache.WALCache
+	walTranslations *pg.WALTranslations
 }
 
 func New(cfg *config.Config) (a *Agent, err error) {
 	a = &Agent{
 		cfg: &cfg.Agent,
+		walTranslations: &pg.WALTranslations{},
 	}
 
 	a.metrics, err = cgm.NewCirconusMetrics(cfg.Metrics)
@@ -102,7 +104,7 @@ func New(cfg *config.Config) (a *Agent, err error) {
 	}
 
 	{
-		walCache, err := walcache.New(a, a.shutdownCtx, cfg, a.metrics, a.ioCache)
+		walCache, err := walcache.New(a, a.shutdownCtx, cfg, a.metrics, a.ioCache, a.walTranslations)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to initialize WAL cache")
 		}
@@ -163,12 +165,13 @@ func (a *Agent) Start() {
 	// 1) Shutdown if we've been told to shutdown.
 	// 2) Sleep if we've been told to sleep in the previous iteration.
 	// 3) Dump caches if a cache-invalidation event occurred.
-	// 4) Attempt to find WAL files.
-	// 4a) Attempt to query the DB to find the WAL files.
-	// 4b) Attempt to query the process args to find the WAL files.
-	// 5) Fault pages in from the heap if we have found any WAL files.
-	// 5a) Fault into PG using pg_prewarm() if detected.
-	// 5b) Fault into the filesystem cache using pread(2) if pg_prewarm is not
+	// 4) Determine version of postgres and translate WAL interactions
+	// 5) Attempt to find WAL files.
+	// 5a) Attempt to query the DB to find the WAL files.
+	// 5b) Attempt to query the process args to find the WAL files.
+	// 6) Fault pages in from the heap if we have found any WAL files.
+	// 6a) Fault into PG using pg_prewarm() if detected.
+	// 6b) Fault into the filesystem cache using pread(2) if pg_prewarm is not
 	//     available.
 
 	sleepBetweenIterations := true
@@ -223,7 +226,17 @@ RETRY:
 			purgeCache = false
 		}
 
-		// 4) Get WAL files
+		// 4) Determine version of postgres and translate WAL interactions.
+		if err := a.setWALTranslations(); err != nil {
+			retry := handleErrors(err, "unable to translate WAL interactions")
+			if retry {
+				goto RETRY
+			} else {
+				break RETRY
+			}
+		}
+
+		// 5) Get WAL files
 		var walFiles []pg.WALFilename
 		walFiles, err = a.getWALFiles()
 		if err != nil {
@@ -235,7 +248,7 @@ RETRY:
 			}
 		}
 
-		// 5) Fault in PostgreSQL heap pages identified in the WAL files
+		// 6) Fault in PostgreSQL heap pages identified in the WAL files
 		if sleepBetweenIterations, err = a.prefaultWALFiles(walFiles); err != nil {
 			retry := handleErrors(err, "unable to prefault WAL files")
 			if retry {
@@ -277,6 +290,19 @@ func (a *Agent) Wait() error {
 
 	// Drain work from the WAL cache before returning
 	a.walCache.Wait()
+
+	return nil
+}
+
+func (a *Agent) setWALTranslations() (error) {
+	pgDataPath := viper.GetString(config.KeyPGData)
+	pgVersion, err := a.getPostgresVersion(pgDataPath)
+
+	if err != nil {
+		return newVersionError(err, true)
+	}
+
+	*a.walTranslations = pg.Translate(pgVersion)
 
 	return nil
 }

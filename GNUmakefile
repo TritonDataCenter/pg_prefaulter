@@ -15,8 +15,8 @@ build:: $(PG_PREFAULTER) ## 10 Build pg_prefaulter binary
 pg_prefaulter::
 	go build -ldflags "-X main.commit=`git describe --tags --always` -X main.date=`date +%Y-%m-%d_%H:%d`" -o $@ main.go
 
-.PHONY: check
-check:: ## 10 Run go test
+.PHONY: test
+test:: ## 10 Run go test
 	go test -v ./...
 
 cover:: coverage_report ## 10 Generate a coverage report
@@ -96,7 +96,8 @@ GOPATH?=$(shell go env GOPATH)
 PGDATA_PRIMARY?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_primary
 PGDATA_FOLLOWER?=$(GOPATH)/src/github.com/joyent/pg_prefaulter/.pgdata_follower
 
-PGFOLLOWPORT=5433
+PGPRIMARYPORT?=5442
+PGFOLLOWPORT?=5452
 
 .PHONY: check-pg_controldata
 check-pg_controldata::
@@ -156,7 +157,7 @@ initdb-primary:: $(PWFILE) check-initdb ## 30 initdb(1) a primary database
 
 .PHONY: initdb-follower
 initdb-follower:: $(PWFILE) check-pg_basebackup ## 40 initdb(1) a follower database
-	env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PG_BASEBACKUP) -R -h localhost -D $(PGDATA_FOLLOWER) -P -U postgres --xlog-method=stream
+	env PGPASSWORD="`cat \"$(PWFILE)\"`" $(PG_BASEBACKUP) -R -h localhost -p $(PGPRIMARYPORT) -D $(PGDATA_FOLLOWER) -P -U postgres -X stream
 	mkdir -p $(PGDATA_FOLLOWER)/archive || true
 
 .PHONY: startdb-primary
@@ -164,6 +165,7 @@ startdb-primary:: check-postgres ## 30 Start the primary database
 	2>&1 \
 	exec $(POSTGRES) \
 		-D "$(PGDATA_PRIMARY)" \
+		-p "$(PGPRIMARYPORT)" \
 		-c log_connections=off \
 		-c log_disconnections=off \
 		-c log_duration=off \
@@ -269,7 +271,7 @@ cleandb-follower:: ## 40 Clean follower database
 freshdb-follower:: cleandb-follower initdb-follower startdb-follower ## 40 Drops and recreates the follower database
 
 .PHONY: testdb
-testdb:: check resetdb ## 50 Run database tests
+testdb:: test resetdb ## 50 Run database tests
 
 .PHONY: pgbench-init
 pgbench-init:: check-pgbench ## 60 Initialize pgbench
@@ -314,11 +316,11 @@ psql-both:: ## 70 Send a psql(1) command to both using -c
 
 .PHONY: psql-primary
 psql-primary:: check-psql ## 30 Open a psql(1) shell to the primary
-	@exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -E postgres postgres $(PSQL_ARGS)
+	@exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -p $(PGPRIMARYPORT) -E postgres postgres $(PSQL_ARGS)
 
 .PHONY: psql-follower
 psql-follower:: check-psql ## 40 Open a psql(1) shell to the follower
-	@exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -p 5433 -E postgres postgres $(PSQL_ARGS)
+	@exec env PGPASSWORD="`cat \"$(PWFILE)\"`" "$(PSQL)" -p $(PGFOLLOWPORT) -E postgres postgres $(PSQL_ARGS)
 
 .PHONY: help
 help:: ## 99 This help message

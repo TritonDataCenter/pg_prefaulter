@@ -29,11 +29,23 @@ type walError struct {
 	_purgeCache bool
 }
 
+type versionError struct {
+	_err    error
+	_retry  bool
+}
+
 func newWALError(err error, retry bool, purge bool) walError {
 	return walError{
 		_err:        err,
 		_retry:      retry,
 		_purgeCache: purge,
+	}
+}
+
+func newVersionError(err error, retry bool) versionError {
+	return versionError{
+		_err:    err,
+		_retry:  retry,
 	}
 }
 
@@ -48,4 +60,12 @@ func (walErr walError) retry() bool {
 
 func (walErr walError) purgeCache() bool {
 	return walErr._purgeCache
+}
+
+func (versionErr versionError) Error() string {
+	return fmt.Sprintf("%v (retriable: %t)", versionErr._err, versionErr._retry)
+}
+
+func (versionErr versionError) retry() bool {
+	return versionErr._retry
 }

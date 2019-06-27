@@ -1,4 +1,4 @@
-// Copyright © 2017 Joyent, Inc.
+// Copyright © 2019 Joyent, Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -20,6 +20,8 @@ import (
 	"io/ioutil"
 	"math"
 	"strconv"
+	"strings"
+	"path"
 	"time"
 
 	"github.com/alecthomas/units"
@@ -167,7 +169,7 @@ func (a *Agent) getWALFilesDB() (pg.WALFiles, error) {
 		return nil, errors.Wrap(err, "unable to get WAL db files")
 	}
 
-	timelineID, oldLSNs, err := pg.QueryOldestLSNs(a.shutdownCtx, a.pool, a.walCache)
+	timelineID, oldLSNs, err := pg.QueryOldestLSNs(a.shutdownCtx, a.pool, a.walCache, a.walTranslations)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to query PostgreSQL checkpoint information")
 	}
@@ -235,7 +237,9 @@ func (a *Agent) initDBPool(cfg *config.Config) (err error) {
 		if err := conn.QueryRowEx(a.shutdownCtx, sql, nil).Scan(&version); err != nil {
 			return errors.Wrap(err, "unable to query DB version")
 		}
+
 		log.Debug().Uint32("backend-pid", conn.PID()).Str("version", version).Msg("established DB connection")
+
 		a.metrics.SetTextValue(metrics.DBVersionPG, version)
 
 		return nil
@@ -266,26 +270,9 @@ func (a *Agent) queryLag(lagQuery _QueryLag) (units.Base2Bytes, error) {
 	var sql string
 	switch lagQuery {
 	case _QueryLagPrimary:
-		sql = `SELECT
-  state,
-  sync_state,
-  (pg_xlog_location_diff(sent_location, write_location))::FLOAT8 AS durability_lag_bytes,
-  (pg_xlog_location_diff(sent_location, flush_location))::FLOAT8 AS flush_lag_bytes,
-  (pg_xlog_location_diff(sent_location, replay_location))::FLOAT8 AS visibility_lag_bytes,
-  COALESCE(EXTRACT(EPOCH FROM '0'::INTERVAL), 0.0)::FLOAT8 AS visibility_lag_ms
-FROM
-  pg_catalog.pg_stat_replication
-ORDER BY visibility_lag_bytes
-LIMIT 1`
+		sql = a.walTranslations.Queries.LagPrimary
 	case _QueryLagFollower:
-		sql = `SELECT
-  'receiving' AS state,
-  'applying' AS sync_state,
-  0.0::FLOAT8 AS durability_lag_bytes,
-  0.0::FLOAT8 AS flush_lag_bytes,
-  COALESCE((pg_xlog_location_diff(pg_last_xlog_receive_location(), pg_last_xlog_replay_location()))::FLOAT8, 0.0)::FLOAT8 AS visibility_lag_bytes,
-  COALESCE(EXTRACT(EPOCH FROM (NOW() - pg_last_xact_replay_timestamp())::INTERVAL), 0.0)::FLOAT8 AS visibility_lag_ms
-LIMIT 1`
+		sql = a.walTranslations.Queries.LagFollower
 	default:
 		panic(fmt.Sprintf("unsupported query: %v", lagQuery))
 	}
@@ -449,4 +436,53 @@ func (a *Agent) startDBStats() {
 				Msg("db-stats")
 		}
 	}
+}
+
+// getPostgresVersion reads PG_VERSION in the provided data path, parses its value, and
+// returns its integer representation.
+//
+// This is intended to act like postgresql's "server_version_num" value, but we can only
+// get that from a query to the database, and the prefaulter needs to have this version
+// in a parseable and comparable format (sometimes before the database has started).
+//
+// Importantly, because PG_VERSION only contains the major portion of the running database,
+// this function will not return the exact version (i.e. the minor) of the database; it will
+// look like the minor version is always 0.
+func (a *Agent) getPostgresVersion(pgDataPath string) (pgMajor uint64, err error) {
+	versionFileAbs := path.Join(pgDataPath, "PG_VERSION")
+	buf, err := ioutil.ReadFile(versionFileAbs)
+	if err != nil {
+		return pgMajor, errors.Wrap(err, "unable to read PG_VERSION")
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(buf))
+	var versionStringRaw string
+	for scanner.Scan() {
+		versionStringRaw = scanner.Text()
+		break
+	}
+	if err := scanner.Err(); err != nil {
+		return pgMajor, errors.Wrap(err, "unable to extract PostgreSQL's version string")
+	}
+
+	parts := strings.Split(versionStringRaw, ".")
+	first, err := strconv.ParseUint(parts[0], 10, 32)
+	if err != nil {
+		return pgMajor, errors.Wrap(err, "unable to parse first section of version")
+	}
+
+	var pgVersionString string
+	if first < 10 {
+		second := parts[1];
+		pgVersionString = fmt.Sprintf("%d%s00", (first * 10), second)
+	} else {
+		pgVersionString = fmt.Sprintf("%d0000", first)
+	}
+
+	pgMajor, err = strconv.ParseUint(pgVersionString, 10, 32)
+	if err != nil {
+		return pgMajor, errors.Wrap(err, "unable to parse version back to integer")
+	}
+
+	return pgMajor, nil
 }

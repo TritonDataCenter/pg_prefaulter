@@ -1,4 +1,4 @@
-// Copyright © 2017 Joyent, Inc.
+// Copyright © 2019 Joyent, Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -74,6 +74,7 @@ type WALCache struct {
 	shutdownCtx       context.Context
 	wg                sync.WaitGroup
 	cfg               *config.WALCacheConfig
+	walTranslations   *pg.WALTranslations
 
 	purgeLock sync.Mutex
 	c         gcache.Cache
@@ -94,7 +95,7 @@ var (
 
 func New(pgConnCtxAcquirer ConnContextAcquirer, shutdownCtx context.Context,
 	cfg *config.Config, circMetrics *cgm.CirconusMetrics,
-	ioCache *iocache.IOCache) (*WALCache, error) {
+	ioCache *iocache.IOCache, walTranslations *pg.WALTranslations) (*WALCache, error) {
 	walWorkers := pg.NumOldLSNs * int(math.Ceil(float64(cfg.ReadaheadBytes)/float64(pg.WALSegmentSize)))
 
 	wc := &WALCache{
@@ -102,6 +103,7 @@ func New(pgConnCtxAcquirer ConnContextAcquirer, shutdownCtx context.Context,
 		shutdownCtx:       shutdownCtx,
 		metrics:           circMetrics,
 		cfg:               &cfg.WALCacheConfig,
+		walTranslations:   walTranslations,
 
 		inFlightWALFiles: make(map[pg.WALFilename]struct{}, walWorkers),
 		ioCache:          ioCache,
@@ -280,10 +282,10 @@ func (wc *WALCache) prefaultWALFile(walFile pg.WALFilename) (err error) {
 	var blocksMatched, linesMatched, linesScanned, walFilesProcessed, xlogdumpBytes uint64
 	var ioCacheHit, ioCacheMiss uint64
 
-	walFileAbs := path.Join(wc.cfg.PGDataPath, "pg_xlog", string(walFile))
+	walFileAbs := path.Join(wc.cfg.PGDataPath, wc.walTranslations.Directory, string(walFile))
 	_, err = os.Stat(walFileAbs)
 	if err != nil {
-		// log.Debug().Err(err).Str("walfile", string(walFile)).Msg("stat")
+		log.Warn().Err(err).Str("walfile", string(walFile)).Msg("stat")
 		return errors.Wrap(err, "WAL file does not exist")
 	}
 

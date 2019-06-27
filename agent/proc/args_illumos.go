@@ -35,10 +35,10 @@ import (
 // 2>&1 pargs 80418 | grep 'startup process' | grep recovering
 //
 // argv[0]: postgres: startup process   recovering 00000001000002B8000000F9
-var pargsRE = regexp.MustCompile(`^argv\[0\]: postgres: startup process[\s]+recovering[\s]+([0-9A-F]{24})`)
+var pargsRE = regexp.MustCompile(`^argv\[0\]: postgres: startup [process]*[\s]+recovering[\s]+([0-9A-F]{24})`)
 
 // postgres: startup process   recovering 00000001000000000000005C \\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00
-var procRE = regexp.MustCompile(`^postgres: startup process[\s]+recovering[\s]+([0-9A-F]{24})`)
+var procRE = regexp.MustCompile(`^postgres: startup [process]*[\s]+recovering[\s]+([0-9A-F]{24})`)
 
 // FindWALFileFromPIDArgs searches a slice of PIDs to find the WAL filename
 // being currently processed.

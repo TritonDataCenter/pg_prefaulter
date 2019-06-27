@@ -233,7 +233,7 @@ Global Flags:
 2. `make freshdb-follower`
 3. `make resetdb`
 4. `make build`
-5. `make check`
+5. `make test`
 6. `./pg_prefaulter ...` # Iterate
 
 To cross-compile and build a release use
